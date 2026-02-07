@@ -33,6 +33,7 @@ const sidebars = {
         "codebase/excalidraw-plus-design-spec",
         "codebase/excalidraw-plus-e2e-db-runbook",
         "codebase/excalidraw-plus-docker-deploy-nomoo-top",
+        "codebase/excalidraw-plus-zeabur-api-routing",
       ],
     },
     {
