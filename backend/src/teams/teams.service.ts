@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 
 import type { TeamRole } from "@prisma/client";
 
+import { AuditService } from "../audit/audit.service";
 import {
   ForbiddenError,
   TeamNotFoundError,
@@ -52,7 +53,10 @@ const mapTeamMember = (member: {
 
 @Injectable()
 export class TeamsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async listTeams(ctx: AuthContext) {
     const members = await this.prisma.teamMember.findMany({
@@ -165,6 +169,14 @@ export class TeamsService {
       },
     });
 
+    await this.auditService.log({
+      action: "TEAM_MEMBER_ADD",
+      actorUserId: ctx.userId,
+      targetUserId: user.id,
+      teamId,
+      metadata: { role: member.role },
+    });
+
     return mapTeamMember(member);
   }
 
@@ -226,6 +238,14 @@ export class TeamsService {
       },
     });
 
+    await this.auditService.log({
+      action: "TEAM_MEMBER_ROLE_UPDATE",
+      actorUserId: ctx.userId,
+      targetUserId: userId,
+      teamId,
+      metadata: { role },
+    });
+
     return mapTeamMember(member);
   }
 
@@ -268,6 +288,14 @@ export class TeamsService {
           userId,
         },
       },
+    });
+
+    await this.auditService.log({
+      action: "TEAM_MEMBER_REMOVE",
+      actorUserId: ctx.userId,
+      targetUserId: userId,
+      teamId,
+      metadata: { removedRole: existing.role },
     });
   }
 

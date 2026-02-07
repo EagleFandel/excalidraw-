@@ -226,3 +226,29 @@ sidebar_label: Design Spec（组件+状态+交互）
 - 协作模块边界：`excalidraw-app/collab/Collab.tsx`
 - 主题 token 与暗色模式：`packages/excalidraw/css/theme.scss`
 
+## 11. 2026-02-07 实施对齐补充（P0+P1+P2）
+
+### 11.1 已落地关键行为
+
+- Plus/Account 入口本地化：欢迎页、主菜单、推广位和命令入口已统一改为本地登录/注册流。
+- 账号交互闭环：`AuthDialog` 支持 `signin/signup` 双模式，新增本地 `UserMenu` 登出入口。
+- 文件体验增强：新增文件列表搜索/排序/收藏筛选与条目快捷动作。
+- 新建流程收敛：文件创建改为显式模态（标题 + scope + team）而非固定 `Untitled`。
+- 冲突可感知：新增 `ConflictDialog` 及冲突上下文状态。
+- 离线可感知：新增 `offline` 同步状态与待同步队列重放机制。
+- 团队角色驱动：成员管理操作对 `owner/admin/member` 进行前端能力收敛。
+- i18n 补齐：新增能力文案已同步到 `en` 与 `zh-CN` locale key。
+
+### 11.2 后端治理对齐
+
+- CSRF（Double Submit）：`GET /api/auth/csrf` + 写操作 header/cookie 校验。
+- 限流：全局默认限流与 auth 更严格阈值（服务端守卫实现）。
+- API 文档：`/api/docs` 与 `/api/docs-json` 已可用。
+- 审计日志：覆盖认证、团队成员、文件软删/彻删核心事件。
+- 观测基线：请求级日志包含 `requestId/path/status/latency`，并支持可选 `/api/metrics`。
+
+### 11.3 对外契约稳定性
+
+- 保持既有接口基线不变：`/api/auth/*`、`/api/files/*`、`/api/teams/*`、`/api/health`。
+- 统一错误结构保持为 `{ error: { code, message } }`。
+- 版本冲突、权限与鉴权错误语义保持兼容（`VERSION_CONFLICT`/`FORBIDDEN`/`UNAUTHORIZED` 等）。

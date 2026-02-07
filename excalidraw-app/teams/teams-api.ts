@@ -1,3 +1,5 @@
+import { fetchWithCsrf } from "../auth/csrf";
+
 export type TeamRole = "owner" | "admin" | "member";
 
 export type TeamRecord = {
@@ -31,13 +33,14 @@ const fetchTeamsJson = async <T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> => {
-  const response = await fetch(`${TEAMS_API_BASE}${path}`, {
+  const headers = new Headers(init?.headers || undefined);
+  if (init?.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetchWithCsrf(`${TEAMS_API_BASE}${path}`, {
     ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
+    headers,
   });
 
   if (!response.ok) {

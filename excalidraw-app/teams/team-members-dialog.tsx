@@ -14,6 +14,7 @@ export const TeamMembersDialog = ({
   isLoading,
   errorMessage,
   currentUserId,
+  canManageMembers,
   onClose,
   onRefresh,
   onAddMember,
@@ -26,6 +27,7 @@ export const TeamMembersDialog = ({
   isLoading: boolean;
   errorMessage: string;
   currentUserId: string | null;
+  canManageMembers: boolean;
   onClose: () => void;
   onRefresh: () => void;
   onAddMember: (input: { email: string; role: TeamRole }) => Promise<void>;
@@ -61,57 +63,63 @@ export const TeamMembersDialog = ({
           />
         </div>
 
-        <div className="TeamMembersDialog__invite">
-          <TextField
-            label="Invite Email"
-            value={inviteEmail}
-            onChange={setInviteEmail}
-            placeholder="member@example.com"
-            fullWidth
-          />
+        {canManageMembers ? (
+          <div className="TeamMembersDialog__invite">
+            <TextField
+              label="Invite Email"
+              value={inviteEmail}
+              onChange={setInviteEmail}
+              placeholder="member@example.com"
+              fullWidth
+            />
 
-          <label
-            className="TeamMembersDialog__fieldLabel"
-            htmlFor="invite-role"
-          >
-            Role
-          </label>
-          <select
-            id="invite-role"
-            className="TeamMembersDialog__roleSelect"
-            value={inviteRole}
-            onChange={(event) => setInviteRole(event.target.value as TeamRole)}
-          >
-            <option value="owner">owner</option>
-            <option value="admin">admin</option>
-            <option value="member">member</option>
-          </select>
+            <label
+              className="TeamMembersDialog__fieldLabel"
+              htmlFor="invite-role"
+            >
+              Role
+            </label>
+            <select
+              id="invite-role"
+              className="TeamMembersDialog__roleSelect"
+              value={inviteRole}
+              onChange={(event) => setInviteRole(event.target.value as TeamRole)}
+            >
+              <option value="owner">owner</option>
+              <option value="admin">admin</option>
+              <option value="member">member</option>
+            </select>
 
-          <FilledButton
-            size="medium"
-            fullWidth
-            label={isSubmitting ? "Inviting..." : "Add Member"}
-            onClick={async () => {
-              const email = inviteEmail.trim();
-              if (!email) {
-                return;
-              }
+            <FilledButton
+              size="medium"
+              fullWidth
+              label={isSubmitting ? "Inviting..." : "Add Member"}
+              onClick={async () => {
+                const email = inviteEmail.trim();
+                if (!email) {
+                  return;
+                }
 
-              setIsSubmitting(true);
-              try {
-                await onAddMember({
-                  email,
-                  role: inviteRole,
-                });
-                setInviteEmail("");
-                setInviteRole("member");
-              } finally {
-                setIsSubmitting(false);
-              }
-            }}
-            disabled={isSubmitting}
-          />
-        </div>
+                setIsSubmitting(true);
+                try {
+                  await onAddMember({
+                    email,
+                    role: inviteRole,
+                  });
+                  setInviteEmail("");
+                  setInviteRole("member");
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}
+              disabled={isSubmitting}
+            />
+          </div>
+        ) : (
+          <div className="TeamMembersDialog__hint">
+            You have read-only member access.
+          </div>
+        )}
 
         {errorMessage && (
           <div className="TeamMembersDialog__error">{errorMessage}</div>
@@ -138,7 +146,12 @@ export const TeamMembersDialog = ({
                 <select
                   className="TeamMembersDialog__roleSelect"
                   value={member.role}
+                  disabled={!canManageMembers}
                   onChange={async (event) => {
+                    if (!canManageMembers) {
+                      return;
+                    }
+
                     const role = event.target.value as TeamRole;
 
                     if (isSoleOwner && role !== "owner") {
@@ -160,7 +173,7 @@ export const TeamMembersDialog = ({
                   type="button"
                   className="TeamMembersDialog__remove"
                   onClick={async () => {
-                    if (!canRemove) {
+                    if (!canRemove || !canManageMembers) {
                       return;
                     }
 
@@ -173,7 +186,7 @@ export const TeamMembersDialog = ({
 
                     await onRemoveMember(member.userId);
                   }}
-                  disabled={!canRemove}
+                  disabled={!canRemove || !canManageMembers}
                 >
                   Remove
                 </button>
@@ -189,3 +202,4 @@ export const TeamMembersDialog = ({
     </Dialog>
   );
 };
+

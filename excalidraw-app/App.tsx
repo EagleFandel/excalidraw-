@@ -32,7 +32,7 @@ import {
   isDevEnv,
 } from "@excalidraw/common";
 import polyfill from "@excalidraw/excalidraw/polyfill";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadFromBlob } from "@excalidraw/excalidraw/data/blob";
 import { useCallbackRefState } from "@excalidraw/excalidraw/hooks/useCallbackRefState";
 import { t } from "@excalidraw/excalidraw/i18n";
@@ -41,9 +41,7 @@ import {
   GithubIcon,
   XBrandIcon,
   DiscordIcon,
-  ExcalLogo,
   usersIcon,
-  exportToPlus,
   share,
   youtubeIcon,
 } from "@excalidraw/excalidraw/components/icons";
@@ -92,7 +90,8 @@ import {
   SYNC_BROWSER_TABS_TIMEOUT,
 } from "./app_constants";
 import { authApi } from "./auth/auth-api";
-import { AuthDialog } from "./auth/auth-dialog";
+import { AuthDialog, type AuthDialogMode } from "./auth/auth-dialog";
+import { UserMenu } from "./auth/user-menu";
 import {
   authStatusAtom,
   currentUserAtom,
@@ -106,10 +105,6 @@ import Collab, {
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
-import {
-  ExportToExcalidrawPlus,
-  exportToExcalidrawPlus,
-} from "./components/ExportToExcalidrawPlus";
 import { TopErrorBoundary } from "./components/TopErrorBoundary";
 
 import {
@@ -139,13 +134,25 @@ import {
   serializeSceneFromExcalidraw,
 } from "./files/files-scene";
 import {
+  conflictContextAtom,
   currentFileIdAtom,
+  fileListFavoritesOnlyAtom,
+  fileListQueryAtom,
+  fileListSortAtom,
   fileMetaMapAtom,
   filesListAtom,
   filesPanelErrorAtom,
   fileSyncStateAtom,
+  pendingOpsAtom,
+  type FileListSort,
 } from "./files/files-jotai";
 import { MyFilesLocalStore } from "./files/localStore";
+import {
+  dequeuePendingOp,
+  enqueuePendingOp,
+} from "./files/sync-queue";
+import { ConflictDialog } from "./files/components/conflict-dialog";
+import { CreateFileModal } from "./files/components/create-file-modal";
 import { teamsApi } from "./teams/teams-api";
 import {
   currentScopeAtom,
@@ -155,6 +162,7 @@ import {
   teamsPanelErrorAtom,
   type FilesScope,
 } from "./teams/teams-jotai";
+import { CreateTeamModal } from "./teams/create-team-modal";
 import { TeamMembersDialog } from "./teams/team-members-dialog";
 import { isBrowserStorageStateNewer } from "./data/tabSync";
 import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
@@ -168,7 +176,6 @@ import DebugCanvas, {
   loadSavedDebugState,
 } from "./components/DebugCanvas";
 import { AIComponents } from "./components/AI";
-import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 
 import "./index.scss";
 
@@ -442,6 +449,13 @@ const ExcalidrawWrapper = () => {
   const [, setFileMetaMap] = useAtom(fileMetaMapAtom);
   const [filesPanelError, setFilesPanelError] = useAtom(filesPanelErrorAtom);
   const [fileSyncState, setFileSyncState] = useAtom(fileSyncStateAtom);
+  const [pendingOps, setPendingOps] = useAtom(pendingOpsAtom);
+  const [conflictContext, setConflictContext] = useAtom(conflictContextAtom);
+  const [fileListQuery, setFileListQuery] = useAtom(fileListQueryAtom);
+  const [fileListSort, setFileListSort] = useAtom(fileListSortAtom);
+  const [fileListFavoritesOnly, setFileListFavoritesOnly] = useAtom(
+    fileListFavoritesOnlyAtom,
+  );
   const [teams, setTeams] = useAtom(teamsAtom);
   const [currentTeamId, setCurrentTeamId] = useAtom(currentTeamIdAtom);
   const [currentScope, setCurrentScope] = useAtom(currentScopeAtom);
@@ -452,6 +466,11 @@ const ExcalidrawWrapper = () => {
     useState<Exclude<FilesScope, "trash">>("personal");
   const isAuthenticated = useAtomValue(isAuthenticatedAtom);
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
+  const [authDialogMode, setAuthDialogMode] =
+    useState<AuthDialogMode>("signin");
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isCreateFileModalOpen, setIsCreateFileModalOpen] = useState(false);
+  const [isCreateTeamModalOpen, setIsCreateTeamModalOpen] = useState(false);
   const [isTeamMembersDialogOpen, setIsTeamMembersDialogOpen] = useState(false);
   const [isTeamMembersLoading, setIsTeamMembersLoading] = useState(false);
   const [isCollaborating] = useAtomWithInitialValue(isCollaboratingAtom, () => {
@@ -465,6 +484,24 @@ const ExcalidrawWrapper = () => {
   }, [currentFileId]);
 
   const saveVersionRef = useRef<Record<string, number>>({});
+  const replayingPendingOpsRef = useRef(false);
+  const filesListRef = useRef(filesList);
+  const fileMetaMapRef = useRef<Record<string, (typeof filesList)[number]>>({});
+
+  useEffect(() => {
+    filesListRef.current = filesList;
+  }, [filesList]);
+
+  useEffect(() => {
+    fileMetaMapRef.current = filesList.reduce<Record<string, (typeof filesList)[number]>>(
+      (acc, file) => {
+        acc[file.id] = file;
+        return acc;
+      },
+      {},
+    );
+  }, [filesList]);
+
   const isApplyingPersonalSceneRef = useRef(false);
 
   const applyPersonalFileScene = useCallback(
@@ -514,6 +551,8 @@ const ExcalidrawWrapper = () => {
       setTrashedFiles([]);
       setFileMetaMap({});
       setCurrentFileId(null);
+      setPendingOps([]);
+      setConflictContext(null);
       setFilesPanelError("");
       setFileSyncState("idle");
       saveVersionRef.current = {};
@@ -559,6 +598,8 @@ const ExcalidrawWrapper = () => {
     currentTeamId,
     isAuthenticated,
     setCurrentFileId,
+    setPendingOps,
+    setConflictContext,
     setFileMetaMap,
     setFileSyncState,
     setFilesList,
@@ -632,59 +673,71 @@ const ExcalidrawWrapper = () => {
     ],
   );
 
-  const createFile = useCallback(async () => {
-    if (!isAuthenticated || !excalidrawAPI) {
-      return;
-    }
+  const createFile = useCallback(
+    async (input?: {
+      title?: string;
+      scope?: "personal" | "team";
+      teamId?: string | null;
+    }) => {
+      if (!isAuthenticated || !excalidrawAPI) {
+        return;
+      }
 
-    setFilesPanelError("");
-    try {
-      const scene = getEmptyFileScene();
-      const isTeamScope = currentScope === "team" && !!currentTeamId;
-      const created = await filesApi.createPersonalFile({
-        title: "Untitled",
-        scope: isTeamScope ? "team" : "personal",
-        teamId: isTeamScope ? currentTeamId : null,
-        scene,
-      });
+      setFilesPanelError("");
+      try {
+        const scene = getEmptyFileScene();
+        const scope = input?.scope || (currentScope === "team" ? "team" : "personal");
+        const teamId =
+          scope === "team" ? (input?.teamId || currentTeamId || null) : null;
 
-      await MyFilesLocalStore.setLocalFile({
-        fileId: created.id,
-        version: created.version,
-        scene: created.scene,
-        dirty: false,
-        updatedAt: Date.now(),
-      });
+        const created = await filesApi.createPersonalFile({
+          title: input?.title,
+          scope,
+          teamId,
+          scene,
+        });
 
-      saveVersionRef.current[created.id] = created.version;
-      setFilesList((prev) => [
-        created,
-        ...prev.filter((file) => file.id !== created.id),
-      ]);
-      setFileMetaMap((prev) => ({
-        ...prev,
-        [created.id]: created,
-      }));
-      setCurrentFileId(created.id);
-      applyPersonalFileScene(created.scene);
-      setFileSyncState("synced");
-      await loadScopedFiles();
-    } catch {
-      setFilesPanelError("Failed to create file");
-    }
-  }, [
-    applyPersonalFileScene,
-    currentScope,
-    currentTeamId,
-    excalidrawAPI,
-    isAuthenticated,
-    loadScopedFiles,
-    setCurrentFileId,
-    setFileMetaMap,
-    setFileSyncState,
-    setFilesList,
-    setFilesPanelError,
-  ]);
+        await MyFilesLocalStore.setLocalFile({
+          fileId: created.id,
+          version: created.version,
+          scene: created.scene,
+          dirty: false,
+          updatedAt: Date.now(),
+        });
+
+        saveVersionRef.current[created.id] = created.version;
+        setFilesList((prev) => [
+          created,
+          ...prev.filter((file) => file.id !== created.id),
+        ]);
+        setFileMetaMap((prev) => ({
+          ...prev,
+          [created.id]: created,
+        }));
+        setCurrentFileId(created.id);
+        applyPersonalFileScene(created.scene);
+        setFileSyncState("synced");
+        setIsCreateFileModalOpen(false);
+        await loadScopedFiles();
+      } catch {
+        setFilesPanelError("Failed to create file");
+        throw new Error("CREATE_FILE_FAILED");
+      }
+    },
+    [
+      applyPersonalFileScene,
+      currentScope,
+      currentTeamId,
+      excalidrawAPI,
+      isAuthenticated,
+      loadScopedFiles,
+      setCurrentFileId,
+      setFileMetaMap,
+      setFileSyncState,
+      setFilesList,
+      setFilesPanelError,
+    ],
+  );
 
   const saveCurrentFileDebounced = useRef(
     debounce(
@@ -692,8 +745,10 @@ const ExcalidrawWrapper = () => {
         fileId: string;
         scene: ReturnType<typeof serializeSceneFromExcalidraw>;
         title?: string;
+        source?: "local" | "queue";
+        forceVersion?: number;
       }) => {
-        const currentVersion = saveVersionRef.current[opts.fileId];
+        const currentVersion = opts.forceVersion || saveVersionRef.current[opts.fileId];
         if (!currentVersion) {
           return;
         }
@@ -731,6 +786,19 @@ const ExcalidrawWrapper = () => {
             ...prev,
             [saved.id]: saved,
           }));
+
+          setPendingOps((prev) => {
+            if (!prev.length) {
+              return prev;
+            }
+            return prev.filter(
+              (op) => !(op.type === "save" && op.fileId === opts.fileId),
+            );
+          });
+          setConflictContext((prev) =>
+            prev?.fileId === opts.fileId ? null : prev,
+          );
+
           setFileSyncState("synced");
         } catch (error) {
           if (
@@ -738,10 +806,40 @@ const ExcalidrawWrapper = () => {
             error.code === "VERSION_CONFLICT"
           ) {
             setFileSyncState("conflict");
-            setFilesPanelError(
-              "Version conflict detected. Please reopen the file.",
-            );
+            const fileMeta = fileMetaMapRef.current[opts.fileId];
+            setConflictContext({
+              fileId: opts.fileId,
+              title: fileMeta?.title || t("labels.untitled"),
+              localSceneVersion: currentVersion,
+              serverVersion: error.currentVersion || currentVersion,
+            });
             return;
+          }
+
+          if (!navigator.onLine) {
+            setPendingOps((prev) =>
+              enqueuePendingOp(prev, {
+                type: "save",
+                fileId: opts.fileId,
+                version: currentVersion,
+                title: opts.title,
+                scene: opts.scene,
+              }),
+            );
+            setFileSyncState("offline");
+            return;
+          }
+
+          if (opts.source !== "queue") {
+            setPendingOps((prev) =>
+              enqueuePendingOp(prev, {
+                type: "save",
+                fileId: opts.fileId,
+                version: currentVersion,
+                title: opts.title,
+                scene: opts.scene,
+              }),
+            );
           }
 
           setFileSyncState("dirty");
@@ -750,6 +848,100 @@ const ExcalidrawWrapper = () => {
       1200,
     ),
   ).current;
+
+  const replayPendingOperations = useCallback(async () => {
+    if (replayingPendingOpsRef.current || !pendingOps.length || !navigator.onLine) {
+      return;
+    }
+
+    replayingPendingOpsRef.current = true;
+    setFileSyncState("syncing");
+
+    try {
+      let queueSnapshot = [...pendingOps];
+
+      while (queueSnapshot.length) {
+        if (!navigator.onLine) {
+          setPendingOps(queueSnapshot);
+          setFileSyncState("offline");
+          return;
+        }
+
+        const { op, queue } = dequeuePendingOp(queueSnapshot);
+        if (!op) {
+          break;
+        }
+
+        if (op.type === "save") {
+          try {
+            const saved = await filesApi.saveFile({
+              fileId: op.fileId,
+              version: op.version,
+              title: op.title,
+              scene: op.scene,
+            });
+
+            saveVersionRef.current[op.fileId] = saved.version;
+
+            await MyFilesLocalStore.setLocalFile({
+              fileId: op.fileId,
+              version: saved.version,
+              scene: saved.scene,
+              dirty: false,
+              updatedAt: Date.now(),
+            });
+
+            setFilesList((prev) =>
+              prev
+                .map((file) => (file.id === saved.id ? saved : file))
+                .sort(
+                  (a, b) =>
+                    new Date(b.updatedAt).getTime() -
+                    new Date(a.updatedAt).getTime(),
+                ),
+            );
+            setFileMetaMap((prev) => ({
+              ...prev,
+              [saved.id]: saved,
+            }));
+          } catch (error) {
+            if (
+              error instanceof FilesApiError &&
+              error.code === "VERSION_CONFLICT"
+            ) {
+              const fileMeta = fileMetaMapRef.current[op.fileId];
+              setConflictContext({
+                fileId: op.fileId,
+                title: fileMeta?.title || t("labels.untitled"),
+                localSceneVersion: op.version,
+                serverVersion: error.currentVersion || op.version,
+              });
+              setFileSyncState("conflict");
+            } else {
+              setFileSyncState(navigator.onLine ? "dirty" : "offline");
+            }
+
+            setPendingOps(queueSnapshot);
+            return;
+          }
+        }
+
+        queueSnapshot = queue;
+      }
+
+      setPendingOps([]);
+      setFileSyncState("synced");
+    } finally {
+      replayingPendingOpsRef.current = false;
+    }
+  }, [
+    pendingOps,
+    setFileMetaMap,
+    setFileSyncState,
+    setFilesList,
+    setConflictContext,
+    setPendingOps,
+  ]);
 
   const deleteFile = useCallback(
     async (fileId: string) => {
@@ -834,37 +1026,108 @@ const ExcalidrawWrapper = () => {
   const toggleFavorite = useCallback(
     async (fileId: string, isFavorite: boolean) => {
       try {
-        await filesApi.setFavorite(fileId, isFavorite);
-        await loadScopedFiles();
+        const file = await filesApi.setFavorite(fileId, isFavorite);
+        setFilesList((prev) =>
+          prev.map((item) => (item.id === file.id ? { ...item, ...file } : item)),
+        );
+        setFileMetaMap((prev) => ({
+          ...prev,
+          [file.id]: {
+            ...(prev[file.id] || {}),
+            ...file,
+          },
+        }));
       } catch {
         setFilesPanelError("Failed to update favorite");
       }
     },
-    [loadScopedFiles, setFilesPanelError],
+    [setFileMetaMap, setFilesList, setFilesPanelError],
   );
 
-  const createTeam = useCallback(async () => {
-    const teamName = window.prompt("Team name", "My Team")?.trim();
-    if (!teamName) {
-      return;
-    }
+  const renameFile = useCallback(
+    async (fileId: string, title: string) => {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) {
+        return;
+      }
 
-    try {
-      const created = await teamsApi.createTeam(teamName);
+      const currentVersion = saveVersionRef.current[fileId];
+      if (!currentVersion) {
+        return;
+      }
+
+      try {
+        const currentLocal = await MyFilesLocalStore.getLocalFile(fileId);
+        let scene = currentLocal?.scene;
+        if (!scene) {
+          const remoteFile = await filesApi.getFile(fileId);
+          saveVersionRef.current[fileId] = remoteFile.version;
+          scene = remoteFile.scene;
+        }
+
+        const saved = await filesApi.saveFile({
+          fileId,
+          version: saveVersionRef.current[fileId] || currentVersion,
+          title: trimmedTitle,
+          scene: scene,
+        });
+
+        saveVersionRef.current[fileId] = saved.version;
+
+        await MyFilesLocalStore.setLocalFile({
+          fileId,
+          version: saved.version,
+          scene: saved.scene,
+          dirty: false,
+          updatedAt: Date.now(),
+        });
+
+        setFilesList((prev) =>
+          prev
+            .map((file) => (file.id === saved.id ? saved : file))
+            .sort(
+              (a, b) =>
+                new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+            ),
+        );
+        setFileMetaMap((prev) => ({
+          ...prev,
+          [saved.id]: saved,
+        }));
+      } catch {
+        setFilesPanelError("Failed to rename file");
+      }
+    },
+    [setFileMetaMap, setFilesList, setFilesPanelError],
+  );
+
+  const createTeamWithName = useCallback(
+    async (teamName: string) => {
+      const trimmedName = teamName.trim();
+      if (!trimmedName) {
+        throw new Error("TEAM_NAME_REQUIRED");
+      }
+
+      try {
+        const created = await teamsApi.createTeam(trimmedName);
       setTeams((prev) => [created, ...prev]);
       setCurrentScope("team");
       setCurrentTeamId(created.id);
       setTrashSourceScope("team");
+      setIsCreateTeamModalOpen(false);
     } catch {
       setTeamsPanelError("Failed to create team");
+      throw new Error("CREATE_TEAM_FAILED");
     }
-  }, [
-    setCurrentScope,
-    setCurrentTeamId,
-    setTeams,
-    setTeamsPanelError,
-    setTrashSourceScope,
-  ]);
+    },
+    [
+      setCurrentScope,
+      setCurrentTeamId,
+      setTeams,
+      setTeamsPanelError,
+      setTrashSourceScope,
+    ],
+  );
 
   const loadTeamMembers = useCallback(async () => {
     if (!currentTeamId) {
@@ -1017,6 +1280,47 @@ const ExcalidrawWrapper = () => {
   }, [loadScopedFiles]);
 
   useEffect(() => {
+    if (!isAuthenticated || !pendingOps.length) {
+      return;
+    }
+
+    replayPendingOperations();
+  }, [isAuthenticated, pendingOps.length, replayPendingOperations]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      replayPendingOperations();
+    };
+
+    const handleOffline = () => {
+      setFileSyncState("offline");
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [replayPendingOperations, setFileSyncState]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setFileSyncState("offline");
+      return;
+    }
+
+    if (pendingOps.length) {
+      setFileSyncState("offline");
+    }
+  }, [isAuthenticated, pendingOps.length, setFileSyncState]);
+
+  useEffect(() => {
     if (
       !excalidrawAPI ||
       !isAuthenticated ||
@@ -1047,14 +1351,8 @@ const ExcalidrawWrapper = () => {
       return;
     }
 
-    createFile();
-  }, [
-    createFile,
-    currentScope,
-    excalidrawAPI,
-    filesList.length,
-    isAuthenticated,
-  ]);
+    setIsCreateFileModalOpen(true);
+  }, [currentScope, excalidrawAPI, filesList.length, isAuthenticated]);
 
   useEffect(() => {
     if (isDevEnv()) {
@@ -1428,9 +1726,8 @@ const ExcalidrawWrapper = () => {
     );
   };
 
-  const isOffline = useAtomValue(isOfflineAtom);
-
   const localStorageQuotaExceeded = useAtomValue(localStorageQuotaExceededAtom);
+  const isOffline = useAtomValue(isOfflineAtom);
 
   const onCollabDialogOpen = useCallback(
     () => setShareDialogState({ isOpen: true, type: "collaborationOnly" }),
@@ -1456,49 +1753,70 @@ const ExcalidrawWrapper = () => {
     );
   }
 
-  const ExcalidrawPlusCommand = {
-    label: "Excalidraw+",
-    category: DEFAULT_CATEGORIES.links,
-    predicate: true,
-    icon: <div style={{ width: 14 }}>{ExcalLogo}</div>,
-    keywords: ["plus", "cloud", "server"],
-    perform: () => {
-      window.open(
-        `${
-          import.meta.env.VITE_APP_PLUS_LP
-        }/plus?utm_source=excalidraw&utm_medium=app&utm_content=command_palette`,
-        "_blank",
-      );
-    },
-  };
-  const ExcalidrawPlusAppCommand = {
-    label: isAuthenticated ? "Go to Excalidraw+" : "Sign up",
-    category: DEFAULT_CATEGORIES.links,
-    predicate: true,
-    icon: <div style={{ width: 14 }}>{ExcalLogo}</div>,
-    keywords: [
-      "excalidraw",
-      "plus",
-      "cloud",
-      "server",
-      "signin",
-      "login",
-      "signup",
-    ],
-    perform: () => {
-      if (!isAuthenticated) {
-        setIsAuthDialogOpen(true);
+  const openAuthFlow = useCallback(
+    (mode: AuthDialogMode) => {
+      if (mode === "signin" && isAuthenticated) {
+        setIsUserMenuOpen(true);
         return;
       }
 
-      window.open(
-        `${
-          import.meta.env.VITE_APP_PLUS_APP
-        }?utm_source=excalidraw&utm_medium=app&utm_content=command_palette`,
-        "_blank",
-      );
+      setAuthDialogMode(mode);
+      setIsAuthDialogOpen(true);
     },
-  };
+    [isAuthenticated],
+  );
+
+  const createFileDefaultScope =
+    currentScope === "team" && currentTeamId ? "team" : "personal";
+
+  const visibleFiles = useMemo(() => {
+    const query = fileListQuery.trim().toLowerCase();
+
+    const filtered = filesList.filter((file) => {
+      if (fileListFavoritesOnly && !file.isFavorite) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return file.title.toLowerCase().includes(query);
+    });
+
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      if (fileListSort === "name") {
+        return a.title.localeCompare(b.title);
+      }
+
+      if (fileListSort === "updated") {
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }
+
+      const aValue = new Date(a.lastOpenedAt || a.updatedAt).getTime();
+      const bValue = new Date(b.lastOpenedAt || b.updatedAt).getTime();
+      return bValue - aValue;
+    });
+
+    return sorted;
+  }, [fileListFavoritesOnly, fileListQuery, fileListSort, filesList]);
+
+  const canManageCurrentTeamMembers = useMemo(() => {
+    if (!currentTeamId) {
+      return false;
+    }
+
+    const team = teams.find((item) => item.id === currentTeamId);
+    if (!team) {
+      return false;
+    }
+
+    return team.role === "owner" || team.role === "admin";
+  }, [currentTeamId, teams]);
+
+  const currentTeamName =
+    teams.find((team) => team.id === currentTeamId)?.name || "Team";
 
   return (
     <div
@@ -1518,30 +1836,7 @@ const ExcalidrawWrapper = () => {
             toggleTheme: true,
             export: {
               onExportToBackend,
-              renderCustomUI: excalidrawAPI
-                ? (elements, appState, files) => {
-                    return (
-                      <ExportToExcalidrawPlus
-                        elements={elements}
-                        appState={appState}
-                        files={files}
-                        name={excalidrawAPI.getName()}
-                        onError={(error) => {
-                          excalidrawAPI?.updateScene({
-                            appState: {
-                              errorMessage: error.message,
-                            },
-                          });
-                        }}
-                        onSuccess={() => {
-                          excalidrawAPI.updateScene({
-                            appState: { openDialog: null },
-                          });
-                        }}
-                      />
-                    );
-                  }
-                : undefined,
+              renderCustomUI: undefined,
             },
           },
         }}
@@ -1559,7 +1854,9 @@ const ExcalidrawWrapper = () => {
           return (
             <div className="excalidraw-ui-top-right">
               {excalidrawAPI?.getEditorInterface().formFactor === "desktop" && (
-                <ExcalidrawPlusPromoBanner isSignedIn={isAuthenticated} />
+                <ExcalidrawPlusPromoBanner
+                  onAuthClick={() => openAuthFlow(isAuthenticated ? "signin" : "signup")}
+                />
               )}
 
               {collabError.message && <CollabError collabError={collabError} />}
@@ -1588,43 +1885,17 @@ const ExcalidrawWrapper = () => {
           setTheme={(theme) => setAppTheme(theme)}
           refresh={() => forceRefresh((prev) => !prev)}
           isSignedIn={isAuthenticated}
-          onAuthClick={() => {
-            if (isAuthenticated) {
-              window.open(
-                `${
-                  import.meta.env.VITE_APP_PLUS_APP
-                }?utm_source=signin&utm_medium=app&utm_content=hamburger`,
-                "_blank",
-              );
-              return;
-            }
-            setIsAuthDialogOpen(true);
-          }}
+          onAuthClick={openAuthFlow}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
           isCollabEnabled={!isCollabDisabled}
           isSignedIn={isAuthenticated}
+          onAuthClick={openAuthFlow}
         />
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />
           <OverwriteConfirmDialog.Actions.SaveToDisk />
-          {excalidrawAPI && (
-            <OverwriteConfirmDialog.Action
-              title={t("overwriteConfirm.action.excalidrawPlus.title")}
-              actionLabel={t("overwriteConfirm.action.excalidrawPlus.button")}
-              onClick={() => {
-                exportToExcalidrawPlus(
-                  excalidrawAPI.getSceneElements(),
-                  excalidrawAPI.getAppState(),
-                  excalidrawAPI.getFiles(),
-                  excalidrawAPI.getName(),
-                );
-              }}
-            >
-              {t("overwriteConfirm.action.excalidrawPlus.description")}
-            </OverwriteConfirmDialog.Action>
-          )}
         </OverwriteConfirmDialog>
         <AppFooter
           onChange={() => excalidrawAPI?.refresh()}
@@ -1672,7 +1943,7 @@ const ExcalidrawWrapper = () => {
         />
 
         <AppSidebar
-          files={filesList}
+          files={visibleFiles}
           trashedFiles={trashedFiles}
           teams={teams}
           currentFileId={currentFileId}
@@ -1681,22 +1952,31 @@ const ExcalidrawWrapper = () => {
           isLoading={authStatus === "unknown"}
           isAuthenticated={isAuthenticated}
           syncState={fileSyncState}
+          listQuery={fileListQuery}
+          listSort={fileListSort}
+          favoritesOnly={fileListFavoritesOnly}
           errorMessage={filesPanelError || teamsPanelError}
-          onCreateFile={createFile}
+          onCreateFile={() => setIsCreateFileModalOpen(true)}
           onOpenFile={openFile}
+          onRenameFile={renameFile}
           onDeleteFile={deleteFile}
           onRestoreFile={restoreFileFromTrash}
           onPermanentDeleteFile={permanentlyDeleteFile}
           onToggleFavorite={toggleFavorite}
+          onListQueryChange={setFileListQuery}
+          onListSortChange={(sort) => setFileListSort(sort as FileListSort)}
+          onFavoritesOnlyChange={setFileListFavoritesOnly}
           onScopeChange={onScopeChange}
           onSelectTeam={onSelectTeam}
-          onCreateTeam={createTeam}
+          onCreateTeam={() => setIsCreateTeamModalOpen(true)}
           onManageTeamMembers={manageTeamMembers}
         />
 
         <AuthDialog
           isOpen={isAuthDialogOpen}
+          mode={authDialogMode}
           onClose={() => setIsAuthDialogOpen(false)}
+          onModeChange={setAuthDialogMode}
           onSuccess={(user) => {
             setCurrentUser(user);
             setAuthStatus("authenticated");
@@ -1705,11 +1985,46 @@ const ExcalidrawWrapper = () => {
           }}
         />
 
+        <UserMenu
+          isOpen={isUserMenuOpen}
+          user={currentUser}
+          onClose={() => setIsUserMenuOpen(false)}
+          onLogout={async () => {
+            await authApi.logout();
+            setCurrentUser(null);
+            setAuthStatus("guest");
+            setIsUserMenuOpen(false);
+            setCurrentFileId(null);
+            setFilesList([]);
+            setTrashedFiles([]);
+            setFileMetaMap({});
+            setPendingOps([]);
+            setConflictContext(null);
+            setTeams([]);
+            setCurrentTeamId(null);
+            setCurrentScope("personal");
+            setFileSyncState("idle");
+          }}
+        />
+
+        <CreateFileModal
+          isOpen={isCreateFileModalOpen}
+          teams={teams}
+          defaultScope={createFileDefaultScope}
+          defaultTeamId={currentTeamId}
+          onClose={() => setIsCreateFileModalOpen(false)}
+          onSubmit={createFile}
+        />
+
+        <CreateTeamModal
+          isOpen={isCreateTeamModalOpen}
+          onClose={() => setIsCreateTeamModalOpen(false)}
+          onCreate={createTeamWithName}
+        />
+
         <TeamMembersDialog
           isOpen={isTeamMembersDialogOpen}
-          teamName={
-            teams.find((team) => team.id === currentTeamId)?.name || "Team"
-          }
+          teamName={currentTeamName}
           members={currentTeamId ? teamMembersMap[currentTeamId] || [] : []}
           isLoading={isTeamMembersLoading}
           errorMessage={teamsPanelError}
@@ -1719,6 +2034,81 @@ const ExcalidrawWrapper = () => {
           onAddMember={addTeamMember}
           onUpdateMemberRole={updateTeamMemberRole}
           onRemoveMember={removeTeamMember}
+          canManageMembers={canManageCurrentTeamMembers}
+        />
+
+        <ConflictDialog
+          context={conflictContext}
+          onClose={() => {
+            setConflictContext(null);
+            setFileSyncState("dirty");
+          }}
+          onOverwrite={async () => {
+            if (!conflictContext || !excalidrawAPI) {
+              return;
+            }
+
+            try {
+              const latest = await filesApi.getFile(conflictContext.fileId);
+              const localScene = serializeSceneFromExcalidraw(excalidrawAPI);
+              const saved = await filesApi.saveFile({
+                fileId: conflictContext.fileId,
+                version: latest.version,
+                title: latest.title,
+                scene: localScene,
+              });
+
+              saveVersionRef.current[saved.id] = saved.version;
+              await MyFilesLocalStore.setLocalFile({
+                fileId: saved.id,
+                version: saved.version,
+                scene: saved.scene,
+                dirty: false,
+                updatedAt: Date.now(),
+              });
+              setFilesList((prev) =>
+                prev
+                  .map((file) => (file.id === saved.id ? saved : file))
+                  .sort(
+                    (a, b) =>
+                      new Date(b.updatedAt).getTime() -
+                      new Date(a.updatedAt).getTime(),
+                  ),
+              );
+              setFileMetaMap((prev) => ({
+                ...prev,
+                [saved.id]: saved,
+              }));
+              setPendingOps((prev) =>
+                prev.filter(
+                  (op) =>
+                    !(op.type === "save" && op.fileId === conflictContext.fileId),
+                ),
+              );
+              setConflictContext(null);
+              setFileSyncState("synced");
+            } catch {
+              setFilesPanelError("Failed to resolve conflict by overwrite");
+            }
+          }}
+          onSaveAsCopy={async () => {
+            if (!conflictContext || !excalidrawAPI) {
+              return;
+            }
+
+            try {
+              const fileMeta = fileMetaMapRef.current[conflictContext.fileId];
+              await createFile({
+                title: `${fileMeta?.title || t("labels.untitled")} (${t("labels.copy")})`,
+                scope: fileMeta?.teamId ? "team" : "personal",
+                teamId: fileMeta?.teamId || null,
+              });
+              setConflictContext(null);
+              setFileSyncState("synced");
+            } catch {
+              setFilesPanelError("Failed to save conflict copy");
+            }
+          }}
         />
 
         {errorMessage && (
@@ -1865,30 +2255,15 @@ const ExcalidrawWrapper = () => {
                 );
               },
             },
-            ...(isAuthenticated
-              ? [
-                  {
-                    ...ExcalidrawPlusAppCommand,
-                    label: "Sign in / Go to Excalidraw+",
-                  },
-                ]
-              : [ExcalidrawPlusCommand, ExcalidrawPlusAppCommand]),
-
             {
-              label: t("overwriteConfirm.action.excalidrawPlus.button"),
-              category: DEFAULT_CATEGORIES.export,
-              icon: exportToPlus,
+              label: isAuthenticated
+                ? t("excPlus.auth.account")
+                : t("excPlus.auth.signIn"),
+              category: DEFAULT_CATEGORIES.app,
               predicate: true,
-              keywords: ["plus", "export", "save", "backup"],
+              keywords: ["auth", "login", "register", "account"],
               perform: () => {
-                if (excalidrawAPI) {
-                  exportToExcalidrawPlus(
-                    excalidrawAPI.getSceneElements(),
-                    excalidrawAPI.getAppState(),
-                    excalidrawAPI.getFiles(),
-                    excalidrawAPI.getName(),
-                  );
-                }
+                openAuthFlow(isAuthenticated ? "signin" : "signup");
               },
             },
             {
@@ -1929,12 +2304,6 @@ const ExcalidrawWrapper = () => {
 };
 
 const ExcalidrawApp = () => {
-  const isCloudExportWindow =
-    window.location.pathname === "/excalidraw-plus-export";
-  if (isCloudExportWindow) {
-    return <ExcalidrawPlusIframeExport />;
-  }
-
   return (
     <TopErrorBoundary>
       <Provider store={appJotaiStore}>

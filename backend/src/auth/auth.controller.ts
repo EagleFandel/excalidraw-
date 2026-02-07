@@ -2,11 +2,12 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Post,
   Req,
   Res,
 } from "@nestjs/common";
-
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
@@ -20,6 +21,13 @@ type RequestWithCookies = Request & {
 @Controller("auth")
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Get("csrf")
+  csrf(@Res({ passthrough: true }) response: Response) {
+    const csrfToken = this.authService.generateCsrfToken();
+    this.authService.setCsrfCookie(response, csrfToken);
+    return { csrfToken };
+  }
 
   @Post("register")
   async register(@Body() input: RegisterDto, @Res({ passthrough: true }) response: Response) {
@@ -36,6 +44,7 @@ export class AuthController {
   }
 
   @Post("login")
+  @HttpCode(HttpStatus.OK)
   async login(@Body() input: LoginDto, @Res({ passthrough: true }) response: Response) {
     const user = await this.authService.login({
       email: input.email.trim().toLowerCase(),
@@ -47,9 +56,16 @@ export class AuthController {
   }
 
   @Post("logout")
-  logout(@Res({ passthrough: true }) response: Response) {
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(@Res({ passthrough: true }) response: Response) {
+    const cookieName = this.authService.getAuthCookieName();
+    const token = (response.req as RequestWithCookies)?.cookies?.[cookieName];
+    const payload = this.authService.verifyTokenFromCookie(token);
+
+    await this.authService.logLogout(payload?.sub || null, payload?.email);
+
     this.authService.clearAuthCookie(response);
-    response.status(204);
+    this.authService.setCsrfCookie(response, this.authService.generateCsrfToken());
   }
 
   @Get("me")

@@ -90,6 +90,10 @@
       color: var(--color-danger);
     }
 
+    &.is-offline {
+      color: var(--color-warning-darkest);
+    }
+
     &.is-synced {
       color: var(--color-badge);
     }
@@ -162,7 +166,6 @@
     }
   }
 
-  .app-sidebar-file-favorite,
   .app-sidebar-file-restore {
     border: none;
     background: transparent;

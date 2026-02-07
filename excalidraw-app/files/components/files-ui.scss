@@ -1,0 +1,126 @@
+.excalidraw {
+  .app-sidebar-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid var(--sidebar-border-color);
+    border-radius: var(--border-radius-lg);
+  }
+
+  .app-sidebar-toolbar-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .app-sidebar-toolbar-label {
+    font-size: 0.78rem;
+    color: var(--color-muted-darker);
+  }
+
+  .app-sidebar-toolbar-select {
+    border: 1px solid var(--sidebar-border-color);
+    border-radius: var(--border-radius-md);
+    padding: 0.35rem 0.5rem;
+    background: var(--color-surface-lowest);
+    color: var(--color-on-surface);
+  }
+
+  .app-sidebar-toolbar-checkbox {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    font-size: 0.8rem;
+    color: var(--color-muted-darker);
+  }
+
+  .app-sidebar-file-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    padding: 0 0.25rem 0.25rem;
+  }
+
+  .app-sidebar-file-action {
+    border: 1px solid var(--sidebar-border-color);
+    border-radius: var(--border-radius-md);
+    background: var(--color-surface-lowest);
+    color: var(--color-muted-darker);
+    cursor: pointer;
+    font-size: 0.72rem;
+    padding: 0.15rem 0.4rem;
+
+    &:hover {
+      background: var(--button-hover-bg);
+      color: var(--color-on-surface);
+    }
+  }
+
+  .app-sidebar-file-action-danger {
+    color: var(--color-danger);
+  }
+
+  .CreateFileModal,
+  .ConflictDialog,
+  .CreateTeamModal {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .CreateFileModal__scope {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .CreateFileModal__fieldLabel {
+    font-size: 0.8rem;
+    color: var(--color-muted-darker);
+  }
+
+  .CreateFileModal__select {
+    border: 1px solid var(--sidebar-border-color);
+    border-radius: var(--border-radius-md);
+    padding: 0.35rem 0.5rem;
+    background: var(--color-surface-lowest);
+    color: var(--color-on-surface);
+  }
+
+  .CreateFileModal__error,
+  .CreateTeamModal__error {
+    color: var(--color-danger);
+    font-size: 0.84rem;
+  }
+
+  .ConflictDialog__text {
+    font-size: 0.9rem;
+  }
+
+  .ConflictDialog__meta {
+    font-size: 0.8rem;
+    color: var(--color-muted-darker);
+  }
+
+  .ConflictDialog__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .ConflictDialog__cancel {
+    border: 1px solid var(--sidebar-border-color);
+    border-radius: var(--border-radius-md);
+    padding: 0.35rem 0.6rem;
+    background: var(--color-surface-lowest);
+    color: var(--color-on-surface);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--button-hover-bg);
+    }
+  }
+}
+

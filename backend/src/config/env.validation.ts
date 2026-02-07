@@ -76,6 +76,18 @@ export const validateEnv = (raw: RawEnv) => {
       typeof raw.CORS_ORIGIN === "string" && raw.CORS_ORIGIN
         ? raw.CORS_ORIGIN
         : "http://localhost:3001",
+    CSRF_COOKIE_NAME:
+      typeof raw.CSRF_COOKIE_NAME === "string" && raw.CSRF_COOKIE_NAME
+        ? raw.CSRF_COOKIE_NAME
+        : "excplus-csrf",
+    CSRF_HEADER_NAME:
+      typeof raw.CSRF_HEADER_NAME === "string" && raw.CSRF_HEADER_NAME
+        ? raw.CSRF_HEADER_NAME.toLowerCase()
+        : "x-csrf-token",
+    THROTTLE_TTL: parseNumber(raw.THROTTLE_TTL, 60),
+    THROTTLE_LIMIT: parseNumber(raw.THROTTLE_LIMIT, 120),
+    AUTH_THROTTLE_TTL: parseNumber(raw.AUTH_THROTTLE_TTL, 60),
+    AUTH_THROTTLE_LIMIT: parseNumber(raw.AUTH_THROTTLE_LIMIT, 10),
+    METRICS_ENABLED: parseBoolean(raw.METRICS_ENABLED, false),
   };
 };
-

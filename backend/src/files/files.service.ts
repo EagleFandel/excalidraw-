@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 
+import { AuditService } from "../audit/audit.service";
 import {
   FileNotFoundError,
   ForbiddenError,
@@ -62,6 +63,7 @@ export class FilesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teamsService: TeamsService,
+    private readonly auditService: AuditService,
   ) {}
 
   async listPersonalFiles(ctx: AuthContext) {
@@ -226,6 +228,16 @@ export class FilesService {
         trashedAt: new Date(),
       },
     });
+
+    await this.auditService.log({
+      action: "FILE_DELETE_SOFT",
+      actorUserId: ctx.userId,
+      fileId,
+      teamId: existing.teamId,
+      metadata: {
+        ownerUserId: existing.ownerUserId,
+      },
+    });
   }
 
   async listFiles(
@@ -327,6 +339,16 @@ export class FilesService {
       existing.teamId,
       "write",
     );
+
+    await this.auditService.log({
+      action: "FILE_DELETE_PERMANENT",
+      actorUserId: ctx.userId,
+      fileId,
+      teamId: existing.teamId,
+      metadata: {
+        ownerUserId: existing.ownerUserId,
+      },
+    });
 
     await this.prisma.file.delete({
       where: {

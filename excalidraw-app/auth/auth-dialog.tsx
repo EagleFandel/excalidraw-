@@ -10,19 +10,27 @@ import "./auth-dialog.scss";
 
 import type { AuthUser } from "./auth-api";
 
+export type AuthDialogMode = "signin" | "signup";
+
 export const AuthDialog = ({
   isOpen,
+  mode,
   onClose,
+  onModeChange,
   onSuccess,
 }: {
   isOpen: boolean;
+  mode: AuthDialogMode;
   onClose: () => void;
+  onModeChange: (mode: AuthDialogMode) => void;
   onSuccess: (user: AuthUser) => void;
 }) => {
   const { openDialog } = useUIAppState();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -30,40 +38,106 @@ export const AuthDialog = ({
     return null;
   }
 
+  const isSignUp = mode === "signup";
+
   return (
     <Dialog
-      title={`${t("labels.liveCollaboration").replace(/\./g, "")} • Auth`}
+      title={isSignUp ? t("excPlus.auth.signUp") : t("excPlus.auth.signIn")}
       size="small"
       onCloseRequest={onClose}
     >
       <div className="AuthDialog">
+        <div className="AuthDialog__modeSwitch" role="tablist">
+          <button
+            type="button"
+            className={`AuthDialog__modeButton ${!isSignUp ? "is-active" : ""}`}
+            role="tab"
+            aria-selected={!isSignUp}
+            onClick={() => {
+              onModeChange("signin");
+              setErrorMessage("");
+            }}
+          >
+            {t("excPlus.auth.signIn")}
+          </button>
+          <button
+            type="button"
+            className={`AuthDialog__modeButton ${isSignUp ? "is-active" : ""}`}
+            role="tab"
+            aria-selected={isSignUp}
+            onClick={() => {
+              onModeChange("signup");
+              setErrorMessage("");
+            }}
+          >
+            {t("excPlus.auth.signUp")}
+          </button>
+        </div>
+
+        {isSignUp && (
+          <TextField
+            label={t("labels.name")}
+            value={displayName}
+            onChange={setDisplayName}
+            placeholder={t("labels.yourName")}
+            fullWidth
+          />
+        )}
+
         <TextField
-          label="Email"
+          label={t("excPlus.auth.email")}
           value={email}
           onChange={setEmail}
-          placeholder="you@example.com"
+          placeholder={t("excPlus.auth.emailPlaceholder")}
           fullWidth
         />
         <TextField
-          label="Password"
+          label={t("excPlus.auth.password")}
           value={password}
           onChange={setPassword}
-          placeholder="********"
+          placeholder="••••••••"
           isRedacted
           fullWidth
         />
 
-        {errorMessage && (
-          <div className="AuthDialog__error">{errorMessage}</div>
+        {isSignUp && (
+          <TextField
+            label={t("excPlus.auth.confirmPassword")}
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            placeholder="••••••••"
+            isRedacted
+            fullWidth
+          />
         )}
+
+        {errorMessage && <div className="AuthDialog__error">{errorMessage}</div>}
 
         <FilledButton
           size="large"
           fullWidth
-          label={isSubmitting ? "Signing in..." : "Sign in"}
+          label={
+            isSubmitting
+              ? isSignUp
+                ? t("excPlus.auth.signingUp")
+                : t("excPlus.auth.signingIn")
+              : isSignUp
+                ? t("excPlus.auth.signUp")
+                : t("excPlus.auth.signIn")
+          }
           onClick={async () => {
             if (!email.trim() || !password.trim()) {
-              setErrorMessage("Email and password are required");
+              setErrorMessage(t("excPlus.auth.requiredEmailAndPassword"));
+              return;
+            }
+
+            if (isSignUp && password.length < 8) {
+              setErrorMessage(t("excPlus.auth.passwordMinLength"));
+              return;
+            }
+
+            if (isSignUp && password !== confirmPassword) {
+              setErrorMessage(t("excPlus.auth.passwordMismatch"));
               return;
             }
 
@@ -71,16 +145,25 @@ export const AuthDialog = ({
             setErrorMessage("");
 
             try {
-              const user = await authApi.login({
-                email: email.trim(),
-                password,
-              });
+              const user = isSignUp
+                ? await authApi.register({
+                    email: email.trim(),
+                    password,
+                    displayName: displayName.trim() || undefined,
+                  })
+                : await authApi.login({
+                    email: email.trim(),
+                    password,
+                  });
               onSuccess(user);
               onClose();
               setPassword("");
+              setConfirmPassword("");
             } catch {
               setErrorMessage(
-                "Failed to sign in. Please check your credentials.",
+                isSignUp
+                  ? t("excPlus.auth.signUpFailed")
+                  : t("excPlus.auth.signInFailed"),
               );
             } finally {
               setIsSubmitting(false);
@@ -92,3 +175,4 @@ export const AuthDialog = ({
     </Dialog>
   );
 };
+

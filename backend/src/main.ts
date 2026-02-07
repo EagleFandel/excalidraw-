@@ -4,13 +4,19 @@ import "reflect-metadata";
 import cookieParser from "cookie-parser";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ConfigService } from "@nestjs/config";
 
 import { AppModule } from "./app.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
+import { CsrfGuard } from "./common/guards/csrf.guard";
+import { RateLimitGuard } from "./common/guards/rate-limit.guard";
+import { RequestLogInterceptor } from "./common/interceptors/request-log.interceptor";
+import { MetricsService } from "./common/metrics/metrics.service";
 
 const bootstrap = async () => {
   const app = await NestFactory.create(AppModule);
   const expressApp = app.getHttpAdapter().getInstance();
+  app.get(ConfigService);
 
   app.setGlobalPrefix("api");
   app.enableShutdownHooks();
@@ -26,10 +32,21 @@ const bootstrap = async () => {
   );
 
   app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new RequestLogInterceptor());
+  app.useGlobalGuards(app.get(RateLimitGuard), app.get(CsrfGuard));
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN || "http://localhost:3001",
     credentials: true,
+  });
+
+  const metricsService = app.get(MetricsService);
+  expressApp.use((request: { method?: string; path?: string }, _response: unknown, next: () => void) => {
+    metricsService.incrementCounter("excplus_requests_total", {
+      method: request.method || "GET",
+      path: request.path || "",
+    });
+    next();
   });
 
   const port = Number(process.env.BACKEND_PORT || process.env.PORT || 3005);

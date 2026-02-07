@@ -19,6 +19,7 @@ model User {
   files          File[]
   createdTeams   Team[]       @relation("TeamCreatedBy")
   teamMembership TeamMember[] @relation("TeamMembership")
+  auditLogs      AuditLog[]    @relation("AuditActor")
 }
 
 enum TeamRole {
@@ -37,6 +38,7 @@ model Team {
   createdBy       User         @relation("TeamCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
   members         TeamMember[]
   files           File[]
+  auditLogs       AuditLog[]
 
   @@index([createdByUserId])
 }
@@ -71,6 +73,7 @@ model File {
   owner       User         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   team        Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
   content     FileContent?
+  auditLogs   AuditLog[]
 
   @@index([ownerUserId, updatedAt])
   @@index([teamId, updatedAt])
@@ -84,4 +87,24 @@ model FileContent {
   updatedAt  DateTime @updatedAt
 
   file       File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  actorUserId String?
+  targetUserId String?
+  fileId      String?
+  teamId      String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  team        Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  file        File?    @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([teamId, createdAt])
+  @@index([fileId, createdAt])
 }

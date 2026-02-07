@@ -36,6 +36,14 @@
   font-size: 0.85rem;
 }
 
+.TeamMembersDialog__hint {
+  color: var(--color-muted-darker);
+  font-size: 0.85rem;
+  border: 1px solid var(--sidebar-border-color);
+  border-radius: var(--border-radius-lg);
+  padding: 0.5rem;
+}
+
 .TeamMembersDialog__list {
   display: flex;
   flex-direction: column;

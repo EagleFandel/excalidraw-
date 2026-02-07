@@ -10,3 +10,5 @@ export const authStatusAtom = atom<AuthStatus>("unknown");
 export const isAuthenticatedAtom = atom(
   (get) => get(authStatusAtom) === "authenticated",
 );
+
+export const isUserMenuOpenAtom = atom(false);

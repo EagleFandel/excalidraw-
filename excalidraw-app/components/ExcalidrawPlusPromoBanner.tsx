@@ -1,22 +1,17 @@
+import { t } from "@excalidraw/excalidraw/i18n";
+
 export const ExcalidrawPlusPromoBanner = ({
-  isSignedIn,
+  onAuthClick,
 }: {
-  isSignedIn: boolean;
+  onAuthClick: () => void;
 }) => {
   return (
-    <a
-      href={
-        isSignedIn
-          ? import.meta.env.VITE_APP_PLUS_APP
-          : `${
-              import.meta.env.VITE_APP_PLUS_LP
-            }/plus?utm_source=excalidraw&utm_medium=app&utm_content=guestBanner#excalidraw-redirect`
-      }
-      target="_blank"
-      rel="noopener"
+    <button
+      type="button"
+      onClick={onAuthClick}
       className="plus-banner"
     >
-      Excalidraw+
-    </a>
+      {t("excPlus.auth.account")}
+    </button>
   );
 };

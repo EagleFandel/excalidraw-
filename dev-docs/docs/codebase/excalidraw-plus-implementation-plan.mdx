@@ -370,3 +370,54 @@ A phase is done only when all dimensions pass:
 - Local data and IndexedDB bridge: `excalidraw-app/data/LocalData.ts`
 - Collaboration module boundary: `excalidraw-app/collab/Collab.tsx`
 - Theme token system: `packages/excalidraw/css/theme.scss`
+
+## 8. 2026-02-07 Gap Closure Snapshot (P0+P1+P2)
+
+### 8.1 Delivery matrix
+
+| Area | Status | Notes |
+|---|---|---|
+| A. Local auth entry replacement | ✅ Done | Welcome/MainMenu/Promo/App commands now route to local auth flows instead of official Plus links. |
+| A. Register + logout frontend flow | ✅ Done | Added register API, sign-in/sign-up dialog modes, and local user menu logout action. |
+| B. File list UX enrichment | ✅ Done | Added query/sort/favorite atoms and list toolbar/actions components. |
+| B. Create-file modal | ✅ Done | Replaced direct `Untitled` creation path with modal flow. |
+| B. Conflict dialog | ✅ Done | Added `ConflictDialog` and conflict context state for save conflict handling. |
+| B. Offline queue and replay | ✅ Done | Added pending ops queue with replay hooks and `offline` sync state. |
+| C. Team create/manage UX | ✅ Done | Added create-team modal and role-driven member management behavior. |
+| D. i18n en + zh-CN coverage for new UX | ✅ Done | Added `excPlus.*` locale keys in `en.json` and `zh-CN.json`. |
+| E. CSRF baseline (double submit) | ✅ Done | Added `/api/auth/csrf`, global CSRF guard, and frontend CSRF fetch wrapper. |
+| E. Rate limiting baseline | ✅ Done | Added global in-memory rate-limit guard with stricter auth threshold. |
+| E. OpenAPI docs endpoint | ✅ Done | Added `/api/docs` and `/api/docs-json`. |
+| E. Audit logging | ✅ Done | Added `AuditLog` model + migration + service-level event logging. |
+| E. Metrics baseline | ✅ Done | Added optional `/api/metrics` endpoint controlled by `METRICS_ENABLED`. |
+
+### 8.2 API additions
+
+- `GET /api/auth/csrf`
+- `GET /api/docs`
+- `GET /api/docs-json`
+- `GET /api/metrics` (enabled only when `METRICS_ENABLED=true`)
+
+### 8.3 New environment variables
+
+- `CSRF_COOKIE_NAME` (default `excplus-csrf`)
+- `CSRF_HEADER_NAME` (default `x-csrf-token`)
+- `THROTTLE_TTL` (default `60`)
+- `THROTTLE_LIMIT` (default `120`)
+- `AUTH_THROTTLE_TTL` (default `60`)
+- `AUTH_THROTTLE_LIMIT` (default `10`)
+- `METRICS_ENABLED` (default `false`)
+
+### 8.4 Validation commands used
+
+- `yarn --cwd backend build`
+- `yarn --cwd backend e2e:api`
+- `yarn --cwd excalidraw-app build:app:docker`
+- `yarn test:app --watch=false`
+
+### 8.5 Validation result summary
+
+- Backend build: ✅ pass
+- Backend API E2E checklist (extended): ✅ pass (32 passed, 0 failed)
+- Frontend production build: ✅ pass
+- Full monorepo vitest: ⚠️ one flaky timeout observed (`packages/element/tests/zindex.test.tsx`), isolated re-run passed.

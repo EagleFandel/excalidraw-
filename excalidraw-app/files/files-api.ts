@@ -1,3 +1,5 @@
+import { fetchWithCsrf } from "../auth/csrf";
+
 export type FileScenePayload = {
   elements: unknown[];
   appState: Record<string, unknown> | null;
@@ -58,13 +60,14 @@ const fetchFilesJson = async <T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> => {
-  const response = await fetch(`${FILES_API_BASE}${path}`, {
+  const headers = new Headers(init?.headers || undefined);
+  if (init?.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetchWithCsrf(`${FILES_API_BASE}${path}`, {
     ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
+    headers,
   });
 
   if (!response.ok) {

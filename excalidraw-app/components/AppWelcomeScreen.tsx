@@ -1,47 +1,26 @@
 import { loginIcon } from "@excalidraw/excalidraw/components/icons";
-import { POINTER_EVENTS } from "@excalidraw/common";
 import { useI18n } from "@excalidraw/excalidraw/i18n";
 import { WelcomeScreen } from "@excalidraw/excalidraw/index";
 import React from "react";
+
+import type { AuthDialogMode } from "../auth/auth-dialog";
 
 export const AppWelcomeScreen: React.FC<{
   onCollabDialogOpen: () => any;
   isCollabEnabled: boolean;
   isSignedIn: boolean;
+  onAuthClick: (mode: AuthDialogMode) => void;
 }> = React.memo((props) => {
   const { t } = useI18n();
-  let headingContent;
-
-  if (props.isSignedIn) {
-    headingContent = t("welcomeScreen.app.center_heading_plus")
-      .split(/(Excalidraw\+)/)
-      .map((bit, idx) => {
-        if (bit === "Excalidraw+") {
-          return (
-            <a
-              style={{ pointerEvents: POINTER_EVENTS.inheritFromUI }}
-              href={`${
-                import.meta.env.VITE_APP_PLUS_APP
-              }?utm_source=excalidraw&utm_medium=app&utm_content=welcomeScreenSignedInUser`}
-              key={idx}
-            >
-              Excalidraw+
-            </a>
-          );
-        }
-        return bit;
-      });
-  } else {
-    headingContent = (
-      <>
-        {t("welcomeScreen.app.center_heading")}
-        <br />
-        {t("welcomeScreen.app.center_heading_line2")}
-        <br />
-        {t("welcomeScreen.app.center_heading_line3")}
-      </>
-    );
-  }
+  const headingContent = (
+    <>
+      {t("welcomeScreen.app.center_heading")}
+      <br />
+      {t("welcomeScreen.app.center_heading_line2")}
+      <br />
+      {t("welcomeScreen.app.center_heading_line3")}
+    </>
+  );
 
   return (
     <WelcomeScreen>
@@ -63,16 +42,22 @@ export const AppWelcomeScreen: React.FC<{
               onSelect={() => props.onCollabDialogOpen()}
             />
           )}
-          {!props.isSignedIn && (
-            <WelcomeScreen.Center.MenuItemLink
-              href={`${
-                import.meta.env.VITE_APP_PLUS_LP
-              }/plus?utm_source=excalidraw&utm_medium=app&utm_content=welcomeScreenGuest`}
+          {!props.isSignedIn ? (
+            <WelcomeScreen.Center.MenuItem
+              onSelect={() => props.onAuthClick("signup")}
               shortcut={null}
               icon={loginIcon}
             >
-              Sign up
-            </WelcomeScreen.Center.MenuItemLink>
+              {t("excPlus.auth.signUp")}
+            </WelcomeScreen.Center.MenuItem>
+          ) : (
+            <WelcomeScreen.Center.MenuItem
+              onSelect={() => props.onAuthClick("signin")}
+              shortcut={null}
+              icon={loginIcon}
+            >
+              {t("excPlus.auth.account")}
+            </WelcomeScreen.Center.MenuItem>
           )}
         </WelcomeScreen.Center.Menu>
       </WelcomeScreen.Center>

@@ -7,12 +7,18 @@ import {
 } from "@excalidraw/excalidraw/components/icons";
 import { useUIAppState } from "@excalidraw/excalidraw/context/ui-appState";
 import clsx from "clsx";
+import { t } from "@excalidraw/excalidraw/i18n";
 
 import "./AppSidebar.scss";
+import "../files/components/files-ui.scss";
 
 import type { PersonalFileMeta } from "../files/files-api";
 import type { TeamRecord } from "../teams/teams-api";
 import type { FilesScope } from "../teams/teams-jotai";
+import type { FileListSort } from "../files/files-jotai";
+
+import { FileListItemActions } from "../files/components/file-list-item-actions";
+import { FileListToolbar } from "../files/components/file-list-toolbar";
 
 export const AppSidebar = ({
   files,
@@ -24,13 +30,20 @@ export const AppSidebar = ({
   isLoading,
   isAuthenticated,
   syncState,
+  listQuery,
+  listSort,
+  favoritesOnly,
   errorMessage,
   onCreateFile,
   onOpenFile,
+  onRenameFile,
   onDeleteFile,
   onRestoreFile,
   onPermanentDeleteFile,
   onToggleFavorite,
+  onListQueryChange,
+  onListSortChange,
+  onFavoritesOnlyChange,
   onScopeChange,
   onSelectTeam,
   onCreateTeam,
@@ -44,14 +57,21 @@ export const AppSidebar = ({
   currentTeamId: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  syncState: "idle" | "dirty" | "syncing" | "synced" | "conflict";
+  syncState: "idle" | "dirty" | "syncing" | "synced" | "conflict" | "offline";
+  listQuery: string;
+  listSort: FileListSort;
+  favoritesOnly: boolean;
   errorMessage: string;
   onCreateFile: () => void;
   onOpenFile: (fileId: string) => void;
+  onRenameFile: (fileId: string, title: string) => void;
   onDeleteFile: (fileId: string) => void;
   onRestoreFile: (fileId: string) => void;
   onPermanentDeleteFile: (fileId: string) => void;
   onToggleFavorite: (fileId: string, isFavorite: boolean) => void;
+  onListQueryChange: (query: string) => void;
+  onListSortChange: (sort: FileListSort) => void;
+  onFavoritesOnlyChange: (enabled: boolean) => void;
   onScopeChange: (scope: FilesScope) => void;
   onSelectTeam: (teamId: string) => void;
   onCreateTeam: () => void;
@@ -61,14 +81,20 @@ export const AppSidebar = ({
 
   const syncLabel =
     syncState === "syncing"
-      ? "Syncing"
+      ? t("excPlus.files.syncing")
       : syncState === "synced"
-      ? "Saved"
+      ? t("excPlus.files.synced")
       : syncState === "dirty"
-      ? "Unsaved"
+      ? t("excPlus.files.dirty")
       : syncState === "conflict"
-      ? "Conflict"
-      : "Idle";
+      ? t("excPlus.files.conflict")
+      : syncState === "offline"
+      ? t("excPlus.files.offline")
+      : t("excPlus.files.idle");
+
+  const activeTeam = teams.find((team) => team.id === currentTeamId) || null;
+  const canManageMembers =
+    !!activeTeam && (activeTeam.role === "owner" || activeTeam.role === "admin");
 
   return (
     <DefaultSidebar>
@@ -83,12 +109,13 @@ export const AppSidebar = ({
       <Sidebar.Tab tab="myFiles">
         <div className="app-sidebar-files-container">
           <div className="app-sidebar-files-header">
-            <div className="app-sidebar-files-title">My Files</div>
+            <div className="app-sidebar-files-title">{t("excPlus.files.myFiles")}</div>
             <div
               className={clsx("app-sidebar-sync-status", {
                 "is-syncing": syncState === "syncing",
                 "is-dirty": syncState === "dirty",
                 "is-conflict": syncState === "conflict",
+                "is-offline": syncState === "offline",
                 "is-synced": syncState === "synced",
               })}
             >
@@ -98,7 +125,7 @@ export const AppSidebar = ({
 
           {!isAuthenticated && (
             <div className="app-sidebar-files-empty">
-              Sign in to create and sync personal files.
+              {t("excPlus.files.signInHint")}
             </div>
           )}
 
@@ -112,7 +139,7 @@ export const AppSidebar = ({
                   })}
                   onClick={() => onScopeChange("personal")}
                 >
-                  Personal
+                  {t("excPlus.files.personal")}
                 </button>
                 <button
                   type="button"
@@ -121,7 +148,7 @@ export const AppSidebar = ({
                   })}
                   onClick={() => onScopeChange("team")}
                 >
-                  Team
+                  {t("excPlus.files.team")}
                 </button>
                 <button
                   type="button"
@@ -130,9 +157,20 @@ export const AppSidebar = ({
                   })}
                   onClick={() => onScopeChange("trash")}
                 >
-                  Trash
+                  {t("excPlus.files.trash")}
                 </button>
               </div>
+
+              {currentScope !== "trash" && (
+                <FileListToolbar
+                  query={listQuery}
+                  onQueryChange={onListQueryChange}
+                  sort={listSort}
+                  onSortChange={onListSortChange}
+                  favoritesOnly={favoritesOnly}
+                  onFavoritesOnlyChange={onFavoritesOnlyChange}
+                />
+              )}
 
               {currentScope === "team" && (
                 <div className="app-sidebar-team-panel">
@@ -154,14 +192,15 @@ export const AppSidebar = ({
                   <FilledButton
                     size="medium"
                     fullWidth
-                    label="Create team"
+                    label={t("excPlus.teams.createTeam")}
                     onClick={onCreateTeam}
                   />
                   {currentTeamId && (
                     <FilledButton
                       size="medium"
                       fullWidth
-                      label="Members"
+                      label={t("excPlus.teams.members")}
+                      disabled={!canManageMembers}
                       onClick={onManageTeamMembers}
                     />
                   )}
@@ -172,13 +211,13 @@ export const AppSidebar = ({
                 <FilledButton
                   size="large"
                   fullWidth
-                  label="New file"
+                  label={t("excPlus.files.newFile")}
                   onClick={onCreateFile}
                 />
               )}
 
               {isLoading && (
-                <div className="app-sidebar-files-empty">Loading files...</div>
+                <div className="app-sidebar-files-empty">{t("excPlus.files.loadingFiles")}</div>
               )}
 
               {errorMessage && (
@@ -190,7 +229,7 @@ export const AppSidebar = ({
                 !files.length &&
                 !errorMessage && (
                   <div className="app-sidebar-files-empty">
-                    No files yet. Create your first file.
+                    {t("excPlus.files.empty")}
                   </div>
                 )}
 
@@ -198,7 +237,7 @@ export const AppSidebar = ({
                 currentScope === "trash" &&
                 !trashedFiles.length &&
                 !errorMessage && (
-                  <div className="app-sidebar-files-empty">Trash is empty.</div>
+                  <div className="app-sidebar-files-empty">{t("excPlus.files.emptyTrash")}</div>
                 )}
 
               {!!files.length && currentScope !== "trash" && (
@@ -213,10 +252,11 @@ export const AppSidebar = ({
                       <button
                         type="button"
                         className="app-sidebar-file-open"
+                        aria-label={t("excPlus.files.openAria", { title: item.title })}
                         onClick={() => onOpenFile(item.id)}
                       >
                         <div className="app-sidebar-file-item-title">
-                          {item.isFavorite ? "[Fav] " : ""}
+                          {item.isFavorite ? `${t("excPlus.files.favoriteTag")} ` : ""}
                           {item.title}
                         </div>
                         <div className="app-sidebar-file-item-meta">
@@ -225,24 +265,12 @@ export const AppSidebar = ({
                           {new Date(item.updatedAt).toLocaleString()}
                         </div>
                       </button>
-                      <button
-                        type="button"
-                        className="app-sidebar-file-favorite"
-                        aria-label={item.isFavorite ? "Unfavorite" : "Favorite"}
-                        onClick={() =>
-                          onToggleFavorite(item.id, !item.isFavorite)
-                        }
-                      >
-                        {item.isFavorite ? "Unfav" : "Fav"}
-                      </button>
-                      <button
-                        type="button"
-                        className="app-sidebar-file-delete"
-                        aria-label={`Delete ${item.title}`}
-                        onClick={() => onDeleteFile(item.id)}
-                      >
-                        {TrashIcon}
-                      </button>
+                      <FileListItemActions
+                        item={item}
+                        onRename={onRenameFile}
+                        onToggleFavorite={onToggleFavorite}
+                        onDelete={onDeleteFile}
+                      />
                     </div>
                   ))}
                 </div>
@@ -257,21 +285,25 @@ export const AppSidebar = ({
                           {item.title}
                         </div>
                         <div className="app-sidebar-file-item-meta">
-                          Trashed {new Date(item.updatedAt).toLocaleString()}
+                          {t("excPlus.files.trashedAt", {
+                            value: new Date(item.updatedAt).toLocaleString(),
+                          })}
                         </div>
                       </div>
                       <button
                         type="button"
                         className="app-sidebar-file-restore"
-                        aria-label={`Restore ${item.title}`}
+                        aria-label={t("excPlus.files.restoreAria", { title: item.title })}
                         onClick={() => onRestoreFile(item.id)}
                       >
-                        Restore
+                        {t("excPlus.files.restore")}
                       </button>
                       <button
                         type="button"
                         className="app-sidebar-file-delete"
-                        aria-label={`Permanently delete ${item.title}`}
+                        aria-label={t("excPlus.files.permanentDeleteAria", {
+                          title: item.title,
+                        })}
                         onClick={() => onPermanentDeleteFile(item.id)}
                       >
                         {TrashIcon}

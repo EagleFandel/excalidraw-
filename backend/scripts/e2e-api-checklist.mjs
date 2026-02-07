@@ -1,13 +1,19 @@
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PrismaClient } from "@prisma/client";
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3005/api";
 const SHOULD_START_BACKEND = process.env.E2E_START_BACKEND === "1";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(SCRIPT_DIR, "..");
 const RUN_ID = new Date().toISOString().replace(/[\-:TZ.]/g, "").slice(0, 14);
+const RUN_STARTED_AT = new Date();
+const CSRF_HEADER_NAME =
+  (process.env.CSRF_HEADER_NAME || "x-csrf-token").toLowerCase();
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 let lastProcInfo = null;
+const prisma = new PrismaClient();
 const DEFAULT_DATABASE_URL =
   "postgresql://postgres:postgres@127.0.0.1:5432/excalidraw_plus_dev?schema=public";
 
@@ -65,12 +71,61 @@ class Session {
     }
   }
 
+  async fetchCsrfToken(headers = {}) {
+    const requestHeaders = {
+      Accept: "application/json",
+      ...headers,
+    };
+
+    const cookieHeader = this.cookieHeader();
+    if (cookieHeader) {
+      requestHeaders.Cookie = cookieHeader;
+    }
+
+    const response = await fetch(`${BASE_URL}/auth/csrf`, {
+      method: "GET",
+      headers: requestHeaders,
+      redirect: "manual",
+    });
+
+    this.storeSetCookies(response);
+
+    if (!response.ok) {
+      const raw = await response.text().catch(() => "");
+      throw new Error(
+        `[${this.name}] GET /auth/csrf expected 200, got ${response.status}. body=${raw}`,
+      );
+    }
+
+    const data = await response.json().catch(() => null);
+    const csrfToken = data?.csrfToken;
+
+    if (!csrfToken) {
+      throw new Error(`[${this.name}] csrfToken missing in /auth/csrf response`);
+    }
+
+    return csrfToken;
+  }
+
   async request(method, path, options = {}) {
-    const { body, expectedStatus } = options;
+    const {
+      body,
+      expectedStatus,
+      headers: customHeaders,
+      useCsrf = true,
+    } = options;
+
+    const normalizedMethod = String(method || "GET").toUpperCase();
 
     const headers = {
       Accept: "application/json",
+      ...(customHeaders || {}),
     };
+
+    if (useCsrf && MUTATING_METHODS.has(normalizedMethod)) {
+      const csrfToken = await this.fetchCsrfToken(customHeaders || {});
+      headers[CSRF_HEADER_NAME] = csrfToken;
+    }
 
     const cookieHeader = this.cookieHeader();
     if (cookieHeader) {
@@ -84,7 +139,7 @@ class Session {
     }
 
     const response = await fetch(`${BASE_URL}${path}`, {
-      method,
+      method: normalizedMethod,
       headers,
       body: payload,
       redirect: "manual",
@@ -128,6 +183,44 @@ const assert = (condition, message) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const safeCode = (data) => data?.error?.code;
+
+const runCommand = async (command, args, options = {}) => {
+  return new Promise((resolve, reject) => {
+    const spawnCommand = process.platform === "win32" ? "cmd.exe" : command;
+    const spawnArgs =
+      process.platform === "win32" ? ["/c", command, ...args] : args;
+
+    const child = spawn(spawnCommand, spawnArgs, {
+      ...options,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk || "");
+    });
+
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk || "");
+    });
+
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+
+      reject(
+        new Error(
+          `Command failed (${command} ${args.join(" ")}) with code ${String(code)}. stderr=${stderr.trim()}`,
+        ),
+      );
+    });
+  });
+};
 
 const runStep = async (title, fn, state) => {
   try {
@@ -181,7 +274,19 @@ const startBackendProcess = async () => {
     AUTH_COOKIE_SAME_SITE: process.env.AUTH_COOKIE_SAME_SITE || "lax",
     AUTH_COOKIE_DOMAIN: process.env.AUTH_COOKIE_DOMAIN || "",
     CORS_ORIGIN: process.env.CORS_ORIGIN || "http://localhost:3001",
+    CSRF_COOKIE_NAME: process.env.CSRF_COOKIE_NAME || "excplus-csrf",
+    CSRF_HEADER_NAME: process.env.CSRF_HEADER_NAME || "x-csrf-token",
+    THROTTLE_TTL: process.env.THROTTLE_TTL || "60",
+    THROTTLE_LIMIT: process.env.THROTTLE_LIMIT || "120",
+    AUTH_THROTTLE_TTL: process.env.AUTH_THROTTLE_TTL || "60",
+    AUTH_THROTTLE_LIMIT: process.env.AUTH_THROTTLE_LIMIT || "10",
+    METRICS_ENABLED: process.env.METRICS_ENABLED || "false",
   };
+
+  await runCommand("yarn", ["prisma:deploy"], {
+    cwd: BACKEND_DIR,
+    env,
+  });
 
   const child = spawn(process.execPath, ["dist/main.js"], {
     cwd: BACKEND_DIR,
@@ -250,6 +355,7 @@ const main = async () => {
   const bob = new Session("bob");
   const charlie = new Session("charlie");
   const dave = new Session("dave");
+  const verifier = new Session("verifier");
 
   const refs = {
     aliceId: "",
@@ -284,9 +390,30 @@ const main = async () => {
     assert(res.data?.db === true, "health.db should be true");
   }, state);
 
+  await runStep("/docs-json includes core API routes", async () => {
+    const res = await anon.request("GET", "/docs-json", { expectedStatus: 200 });
+    assert(String(res.data?.openapi || "").startsWith("3."), "openapi version missing");
+    assert(!!res.data?.paths?.["/api/auth/register"], "docs missing /api/auth/register");
+    assert(!!res.data?.paths?.["/api/files"], "docs missing /api/files");
+    assert(!!res.data?.paths?.["/api/teams"], "docs missing /api/teams");
+  }, state);
+
   await runStep("Unauthenticated /auth/me returns 401", async () => {
     const res = await anon.request("GET", "/auth/me", { expectedStatus: 401 });
     assert(res.data?.user === null, "unauth /auth/me should return user: null");
+  }, state);
+
+  await runStep("Mutating request without CSRF returns 403", async () => {
+    const res = await anon.request("POST", "/auth/register", {
+      expectedStatus: 403,
+      useCsrf: false,
+      body: {
+        email: `blocked.${RUN_ID}@example.com`,
+        password: TEST_PASSWORD,
+        displayName: "Blocked",
+      },
+    });
+    assert(safeCode(res.data) === "FORBIDDEN", "missing CSRF should return FORBIDDEN");
   }, state);
 
   await runStep("Register alice", async () => {
@@ -366,6 +493,17 @@ const main = async () => {
       safeCode(res.data) === "INVALID_CREDENTIALS",
       "wrong password should return INVALID_CREDENTIALS",
     );
+  }, state);
+
+  await runStep("Login with valid password returns 200", async () => {
+    const res = await verifier.request("POST", "/auth/login", {
+      expectedStatus: 200,
+      body: {
+        email: TEST_USERS.alice,
+        password: TEST_PASSWORD,
+      },
+    });
+    assert(res.data?.user?.id === refs.aliceId, "valid login user mismatch");
   }, state);
 
   await runStep("/teams unauthenticated returns 401", async () => {
@@ -749,11 +887,76 @@ const main = async () => {
     );
   }, state);
 
+  await runStep("Auth endpoints return 429 when rate limit exceeded", async () => {
+    const limited = new Session("limited");
+    const forwardedFor = `203.0.113.${Math.floor(Math.random() * 100) + 100}`;
+    const headers = {
+      "x-forwarded-for": forwardedFor,
+    };
+
+    for (let index = 0; index < 10; index += 1) {
+      await limited.request("GET", "/auth/me", {
+        expectedStatus: 401,
+        headers,
+      });
+    }
+
+    const blocked = await limited.request("GET", "/auth/me", {
+      expectedStatus: 429,
+      headers,
+    });
+    assert(safeCode(blocked.data) === "RATE_LIMITED", "rate limit should return RATE_LIMITED");
+  }, state);
+
   await runStep("Logout and verify /auth/me returns 401", async () => {
     await alice.request("POST", "/auth/logout", { expectedStatus: 204 });
 
     const res = await alice.request("GET", "/auth/me", { expectedStatus: 401 });
     assert(res.data?.user === null, "after logout /auth/me should return user null");
+  }, state);
+
+  await runStep("Audit logs are written for key actions", async () => {
+    const trackedActions = [
+      "AUTH_REGISTER",
+      "AUTH_LOGIN",
+      "AUTH_LOGOUT",
+      "TEAM_MEMBER_ADD",
+      "TEAM_MEMBER_ROLE_UPDATE",
+      "TEAM_MEMBER_REMOVE",
+      "FILE_DELETE_SOFT",
+      "FILE_DELETE_PERMANENT",
+    ];
+
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        createdAt: {
+          gte: RUN_STARTED_AT,
+        },
+        action: {
+          in: trackedActions,
+        },
+        OR: [
+          {
+            actorUserId: {
+              in: [refs.aliceId, refs.bobId, refs.charlieId],
+            },
+          },
+          {
+            targetUserId: {
+              in: [refs.aliceId, refs.bobId, refs.charlieId],
+            },
+          },
+        ],
+      },
+      select: {
+        action: true,
+      },
+    });
+
+    const observed = new Set(logs.map((log) => log.action));
+    for (const action of trackedActions) {
+      assert(observed.has(action), `missing audit action: ${action}`);
+    }
   }, state);
 
     console.log("--- E2E Summary ---");
@@ -765,6 +968,7 @@ const main = async () => {
     }
   } finally {
     await stopBackendProcess(procInfo);
+    await prisma.$disconnect().catch(() => undefined);
   }
 };
 

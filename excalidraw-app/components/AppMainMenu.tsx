@@ -1,10 +1,12 @@
 import {
   loginIcon,
-  ExcalLogo,
   eyeIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { MainMenu } from "@excalidraw/excalidraw/index";
 import React from "react";
+import { t } from "@excalidraw/excalidraw/i18n";
+
+import type { AuthDialogMode } from "../auth/auth-dialog";
 
 import { isDevEnv } from "@excalidraw/common";
 
@@ -22,7 +24,7 @@ export const AppMainMenu: React.FC<{
   setTheme: (theme: Theme | "system") => void;
   refresh: () => void;
   isSignedIn: boolean;
-  onAuthClick: () => void;
+  onAuthClick: (mode: AuthDialogMode) => void;
 }> = React.memo((props) => {
   return (
     <MainMenu>
@@ -41,22 +43,13 @@ export const AppMainMenu: React.FC<{
       <MainMenu.DefaultItems.Help />
       <MainMenu.DefaultItems.ClearCanvas />
       <MainMenu.Separator />
-      <MainMenu.ItemLink
-        icon={ExcalLogo}
-        href={`${
-          import.meta.env.VITE_APP_PLUS_LP
-        }/plus?utm_source=excalidraw&utm_medium=app&utm_content=hamburger`}
-        className=""
-      >
-        Excalidraw+
-      </MainMenu.ItemLink>
       <MainMenu.DefaultItems.Socials />
       <MainMenu.Item
         icon={loginIcon}
-        onClick={props.onAuthClick}
+        onClick={() => props.onAuthClick(props.isSignedIn ? "signin" : "signup")}
         className="highlighted"
       >
-        {props.isSignedIn ? "Account" : "Sign in"}
+        {props.isSignedIn ? t("excPlus.auth.account") : t("excPlus.auth.signIn")}
       </MainMenu.Item>
       {isDevEnv() && (
         <MainMenu.Item

@@ -1,8 +1,10 @@
 import argon2 from "argon2";
+import { randomBytes, timingSafeEqual } from "crypto";
 import jwt from "jsonwebtoken";
 import { Inject, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
+import { AuditService } from "../audit/audit.service";
 import {
   EmailAlreadyExistsError,
   InvalidCredentialsError,
@@ -27,6 +29,7 @@ type JwtPayload = {
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
+    private readonly auditService: AuditService,
     @Inject(ConfigService) private readonly configService: ConfigService,
   ) {}
 
@@ -47,6 +50,13 @@ export class AuthService {
       displayName: input.displayName,
     });
 
+    await this.auditService.log({
+      action: "AUTH_REGISTER",
+      actorUserId: user.id,
+      targetUserId: user.id,
+      metadata: { email: user.email },
+    });
+
     return this.toAuthUser(user);
   }
 
@@ -60,6 +70,13 @@ export class AuthService {
     if (!isValid) {
       throw new InvalidCredentialsError();
     }
+
+    await this.auditService.log({
+      action: "AUTH_LOGIN",
+      actorUserId: user.id,
+      targetUserId: user.id,
+      metadata: { email: user.email },
+    });
 
     return this.toAuthUser(user);
   }
@@ -134,6 +151,66 @@ export class AuthService {
 
   getAuthCookieName() {
     return this.configService.get<string>("AUTH_COOKIE_NAME") || "excplus-auth";
+  }
+
+  getCsrfCookieName() {
+    return this.configService.get<string>("CSRF_COOKIE_NAME") || "excplus-csrf";
+  }
+
+  getCsrfHeaderName() {
+    return this.configService.get<string>("CSRF_HEADER_NAME") || "x-csrf-token";
+  }
+
+  setCsrfCookie(response: Response, token: string) {
+    const cookieName = this.getCsrfCookieName();
+    const authCookieSecure =
+      this.configService.get<boolean>("AUTH_COOKIE_SECURE") || false;
+    const authCookieSameSite =
+      (this.configService.get<string>("AUTH_COOKIE_SAME_SITE") as
+        | "lax"
+        | "strict"
+        | "none"
+        | undefined) || "lax";
+    const authCookieDomain =
+      this.configService.get<string>("AUTH_COOKIE_DOMAIN") || undefined;
+
+    response.cookie(cookieName, token, {
+      httpOnly: false,
+      secure: authCookieSecure,
+      sameSite: authCookieSameSite,
+      domain: authCookieDomain,
+      path: "/",
+    });
+  }
+
+  generateCsrfToken() {
+    return randomBytes(32).toString("hex");
+  }
+
+  verifyCsrfToken(cookieToken: string | undefined, headerToken: string | undefined) {
+    if (!cookieToken || !headerToken) {
+      return false;
+    }
+
+    try {
+      const cookieBuffer = Buffer.from(cookieToken);
+      const headerBuffer = Buffer.from(headerToken);
+      if (cookieBuffer.length !== headerBuffer.length) {
+        return false;
+      }
+      return timingSafeEqual(cookieBuffer, headerBuffer);
+    } catch {
+      return false;
+    }
+  }
+
+  async logLogout(userId: string | null, email?: string) {
+    await this.auditService.log({
+      action: "AUTH_LOGOUT",
+      actorUserId: userId,
+      targetUserId: userId,
+      metadata: email ? { email } : undefined,
+    });
   }
 
   private toAuthUser(user: {

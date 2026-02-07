@@ -1,3 +1,5 @@
+import { clearCsrfToken, fetchWithCsrf } from "./csrf";
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -7,13 +9,14 @@ export type AuthUser = {
 const AUTH_API_BASE = import.meta.env.VITE_APP_AUTH_API_URL || "";
 
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`${AUTH_API_BASE}${path}`, {
+  const headers = new Headers(init?.headers || undefined);
+  if (init?.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetchWithCsrf(`${AUTH_API_BASE}${path}`, {
     ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -32,9 +35,8 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
 export const authApi = {
   getCurrentUser: async (): Promise<AuthUser | null> => {
-    const response = await fetch(`${AUTH_API_BASE}/auth/me`, {
+    const response = await fetchWithCsrf(`${AUTH_API_BASE}/auth/me`, {
       method: "GET",
-      credentials: "include",
     });
 
     if (response.status === 401) {
@@ -52,6 +54,19 @@ export const authApi = {
     return result.user;
   },
 
+  register: async (input: {
+    email: string;
+    password: string;
+    displayName?: string;
+  }) => {
+    const result = await fetchJson<{ user: AuthUser }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+
+    return result.user;
+  },
+
   login: async (input: { email: string; password: string }) => {
     const result = await fetchJson<{ user: AuthUser }>("/auth/login", {
       method: "POST",
@@ -64,5 +79,6 @@ export const authApi = {
     await fetchJson<void>("/auth/logout", {
       method: "POST",
     });
+    clearCsrfToken();
   },
 };
