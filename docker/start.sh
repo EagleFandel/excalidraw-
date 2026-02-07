@@ -16,6 +16,17 @@ fi
 
 echo "[entrypoint] starting backend on ${BACKEND_HOST:-127.0.0.1}:${BACKEND_PORT:-3005}"
 
+echo "[entrypoint] applying prisma migrations"
+
+if [ -x /opt/node_app/node_modules/.bin/prisma ]; then
+  /opt/node_app/node_modules/.bin/prisma migrate deploy --schema /opt/node_app/backend/prisma/schema.prisma
+elif [ -x /opt/node_app/backend/node_modules/.bin/prisma ]; then
+  /opt/node_app/backend/node_modules/.bin/prisma migrate deploy --schema /opt/node_app/backend/prisma/schema.prisma
+else
+  echo "[entrypoint] prisma cli not found"
+  exit 1
+fi
+
 node /opt/node_app/backend/dist/main.js &
 BACKEND_PID=$!
 

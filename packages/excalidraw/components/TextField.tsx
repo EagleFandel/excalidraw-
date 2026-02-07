@@ -28,7 +28,7 @@ type TextFieldProps = {
   className?: string;
   placeholder?: string;
   isRedacted?: boolean;
-  type?: "text" | "search";
+  type?: "text" | "search" | "password";
 } & ({ value: string } | { defaultValue: string });
 
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
@@ -64,6 +64,12 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
     const [isTemporarilyUnredacted, setIsTemporarilyUnredacted] =
       useState<boolean>(false);
 
+    const resolvedInputType = isRedacted
+      ? isTemporarilyUnredacted
+        ? "text"
+        : "password"
+      : type;
+
     return (
       <div
         className={clsx("ExcTextField", className, {
@@ -98,7 +104,7 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
             ref={innerRef}
             onChange={(event) => onChange?.(event.target.value)}
             onKeyDown={onKeyDown}
-            type={type}
+            type={resolvedInputType}
           />
           {isRedacted && (
             <Button
