@@ -1,0 +1,228 @@
+---
+title: Excalidraw+ Design Spec（组件+状态+交互）
+sidebar_label: Design Spec（组件+状态+交互）
+---
+
+# Excalidraw+ Design Spec（组件+状态+交互）
+
+## 1. 设计目标
+
+基于 Excalidraw 现有画布体验，扩展文件系统与团队协作能力，同时保持产品的一致性与可扩展性。
+
+- **本地优先（Local-first）**：用户始终可编辑，网络状态不阻断创作
+- **状态可感知（State-aware）**：用户可清晰理解保存、同步、冲突与离线状态
+- **低侵入（Canvas-first）**：文件和团队能力不抢占画布主任务流
+- **可扩展（Extensible）**：为实时协作、计费、权限增强预留演进空间
+
+## 2. 信息架构（IA）
+
+### 2.1 页面级结构
+
+- 画布保持中心主区域
+- 左侧 Sidebar 作为文件与团队入口
+- 模态框 / 抽屉承载次级操作（例如冲突处理、成员管理）
+
+### 2.2 Sidebar 导航结构
+
+- `Files`
+  - Scope 切换：`个人` / `团队`
+  - 文件列表（搜索、排序、筛选）
+- `Team`
+  - 团队切换
+  - 成员管理
+- `Trash`
+  - 回收站列表
+  - 恢复 / 彻底删除
+
+## 3. 组件规格（Component Spec）
+
+### 3.1 身份与会话
+
+#### `AuthEntryButton`
+
+- 位置：顶栏
+- 状态：`guest` / `authenticated` / `loading`
+- 行为：未登录时打开登录流程，已登录时打开用户菜单
+
+#### `UserMenu`
+
+- 内容：用户信息、账号设置入口、登出
+- 状态：`idle` / `open` / `submitting`
+- 交互：支持 ESC 关闭；登出后清理本地会话态
+
+### 3.2 文件域
+
+#### `FileScopeSwitcher`
+
+- 用途：切换 `personal` / `team`
+- 状态：`idle` / `loading`
+- 约束：切换期间保持当前画布稳定渲染
+
+#### `FileListPanel`
+
+- 用途：展示文件列表与过滤
+- 状态：`loading` / `empty` / `error` / `ready`
+- 功能：搜索、最近打开排序、收藏筛选
+
+#### `FileListItem`
+
+- 字段：标题、更新时间、所有者范围、同步状态
+- 交互：单击打开、右键菜单、快捷操作（收藏/重命名/删除）
+
+#### `SyncStatusBadge`
+
+- 状态：`dirty` / `syncing` / `synced` / `conflict` / `offline`
+- 行为：hover 显示状态文案；点击打开同步详情
+
+#### `CreateFileModal`
+
+- 输入：文件名、归属（个人/团队）
+- 状态：`idle` / `submitting` / `error`
+- 成功：创建后自动打开文件
+
+#### `ConflictDialog`
+
+- 触发：远端版本冲突（如 `409`）
+- 选项：覆盖服务端、另存副本、取消
+- 默认建议：另存副本（最安全）
+
+### 3.3 团队域
+
+#### `TeamSwitcher`
+
+- 用途：切换当前团队上下文
+- 状态：`loading` / `ready`
+- 行为：切换后刷新文件列表与权限能力
+
+#### `TeamMembersDrawer`
+
+- 功能：查看成员、邀请成员、修改角色、移除成员
+- 角色：`owner` / `admin` / `member`
+- 约束：至少保留 1 个 owner
+
+### 3.4 生命周期与恢复
+
+#### `TrashPanel`
+
+- 功能：回收站浏览、恢复、彻底删除
+- 状态：`loading` / `empty` / `ready`
+
+## 4. 状态模型（State Spec）
+
+建议基于 Jotai 组织下列状态：
+
+- `authStatusAtom`: `unknown | guest | authenticated`
+- `currentUserAtom`: 当前登录用户
+- `teamsAtom`: 用户可见团队列表
+- `currentScopeAtom`: `personal | team`
+- `currentTeamAtom`: 当前团队
+- `fileMetaMapAtom`: 文件元数据映射
+- `currentFileIdAtom`: 当前文件 ID
+- `currentFileSceneAtom`: 当前场景快照
+- `fileSyncStateAtom`: `dirty | syncing | synced | conflict | offline`
+- `pendingOpsAtom`: 离线待同步操作队列
+- `conflictContextAtom`: 冲突上下文（本地/远端版本与快照）
+
+## 5. 交互流程（Interaction Spec）
+
+### 5.1 启动流程
+
+1. 加载本地 IndexedDB 快照并渲染画布
+2. 请求 `/auth/me` 初始化用户态
+3. 请求文件列表并填充 Sidebar
+
+### 5.2 打开文件流程
+
+1. 点击文件项
+2. 优先读取本地副本并 `updateScene`
+3. 后台拉取远端版本并比对
+4. 若远端更新且存在差异，触发冲突提示或覆盖策略
+
+### 5.3 保存流程
+
+1. `onChange` 触发本地保存（置 `dirty`）
+2. debounce 调用远端 `PUT /files/:id`
+3. 成功后更新版本并置 `synced`
+4. 失败时进入 `offline` 或 `conflict`
+
+### 5.4 切文件与离开页面
+
+- 切文件、关闭页面、切标签时执行强制 `flush`
+- 防止用户误以为已保存但未同步
+
+### 5.5 团队流程
+
+1. 切换团队
+2. 更新权限上下文与文件列表
+3. 新建文件时选择归属并保存为 team scope
+
+## 6. 视觉规范（Visual Spec）
+
+### 6.1 主题继承
+
+复用现有 Excalidraw 设计 token（颜色、圆角、阴影、层级），确保一致性。
+
+- Primary / surface token 复用
+- 暗色模式 token 复用
+- 文本对比度与层次遵循现有规范
+
+### 6.2 状态视觉映射
+
+- `synced`: 成功色
+- `syncing`: 中性色 + 动效
+- `dirty`: 中高注意色
+- `conflict`: 警示色
+- `offline`: 弱化中性色 + 文案提示
+
+### 6.3 组件风格一致性
+
+- 按钮、菜单、列表项间距与圆角统一
+- 抽屉与弹窗使用统一阴影与边框规则
+- 避免新增视觉语言与现有主题冲突
+
+## 7. 文案与反馈（UX Writing）
+
+### 7.1 状态文案
+
+- Saving… / 已保存 / 同步冲突 / 离线编辑中 / 正在重试
+
+### 7.2 错误文案
+
+- 权限不足
+- 文件不存在或已删除
+- 网络不可用，请稍后重试
+- 发生版本冲突，建议另存副本
+
+## 8. 可访问性（A11y）与国际化（i18n）
+
+- 键盘可达：Tab、Enter、Esc 全路径可用
+- 屏幕阅读：状态与按钮提供 `aria-label`
+- i18n：所有新增文案走 locale key，不写死字符串
+
+## 9. 埋点与可观测（Analytics & Observability）
+
+### 9.1 事件埋点
+
+- `file_opened`
+- `file_saved`
+- `file_conflict_detected`
+- `team_switched`
+- `member_role_updated`
+
+### 9.2 核心指标
+
+- `save_latency_ms`（p50/p95）
+- `save_error_rate`
+- `conflict_rate`
+- `offline_replay_success_rate`
+- `permission_denied_rate`
+
+## 10. 工程落点映射（当前代码）
+
+- 场景保存与生命周期入口：`excalidraw-app/App.tsx`
+- Sidebar 挂载与替换入口：`excalidraw-app/components/AppSidebar.tsx`
+- 应用级状态存储：`excalidraw-app/app-jotai.ts`
+- 本地存储与文件桥接：`excalidraw-app/data/LocalData.ts`
+- 协作模块边界：`excalidraw-app/collab/Collab.tsx`
+- 主题 token 与暗色模式：`packages/excalidraw/css/theme.scss`
+

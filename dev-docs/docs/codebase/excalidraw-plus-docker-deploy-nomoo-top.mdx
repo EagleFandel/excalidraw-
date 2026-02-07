@@ -1,0 +1,81 @@
+---
+title: Excalidraw+ Docker 生产部署（excalidraw.nomoo.top）
+sidebar_label: Docker部署（excalidraw.nomoo.top）
+---
+
+# Excalidraw+ Docker 生产部署（excalidraw.nomoo.top）
+
+本方案使用 3 个容器：
+
+- `web`：Nginx 承载前端静态文件，并反代 `/api` 到后端
+- `backend`：Express + Prisma API 服务
+- `postgres`：PostgreSQL 数据库
+
+## 1. 已完成的代码调整
+
+- 前端生产 API 改为同域 `/api`：`.env.production`
+- 新增后端生产镜像：`backend/Dockerfile`
+- 新增 Nginx 反代配置：`docker/nginx/nginx.conf`
+- 新增生产编排：`docker-compose.prod.yml`
+- 新增环境变量模板：`.env.prod.example`
+
+## 2. 服务器部署步骤
+
+### 2.1 准备环境变量
+
+在服务器项目根目录执行：
+
+```bash
+cp .env.prod.example .env.prod
+```
+
+编辑 `.env.prod`，至少替换：
+
+- `POSTGRES_PASSWORD`
+- `JWT_SECRET`
+
+### 2.2 启动生产容器
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+```
+
+### 2.3 健康检查
+
+```bash
+curl http://127.0.0.1/api/health
+```
+
+期望返回：
+
+```json
+{"ok":true,"db":true}
+```
+
+## 3. 域名与 HTTPS
+
+当前 `docker/nginx/nginx.conf` 已配置：
+
+- `server_name excalidraw.nomoo.top`
+
+建议在宿主机再加一层 HTTPS（如 Caddy/Nginx + Let’s Encrypt），或改造当前 Nginx 直接挂证书。
+
+## 4. 常用运维命令
+
+查看日志：
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f web backend postgres
+```
+
+重启服务：
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml restart web backend
+```
+
+停止服务：
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml down
+```

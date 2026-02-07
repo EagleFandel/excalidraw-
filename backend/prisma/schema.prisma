@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  files          File[]
+  createdTeams   Team[]       @relation("TeamCreatedBy")
+  teamMembership TeamMember[] @relation("TeamMembership")
+}
+
+enum TeamRole {
+  owner
+  admin
+  member
+}
+
+model Team {
+  id              String       @id @default(cuid())
+  name            String
+  createdByUserId String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  createdBy       User         @relation("TeamCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  members         TeamMember[]
+  files           File[]
+
+  @@index([createdByUserId])
+}
+
+model TeamMember {
+  teamId     String
+  userId     String
+  role       TeamRole  @default(member)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  team       Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user       User      @relation("TeamMembership", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+}
+
+model File {
+  id          String       @id @default(cuid())
+  title       String
+  version     Int          @default(1)
+  ownerUserId String
+  teamId      String?
+  isTrashed   Boolean      @default(false)
+  trashedAt   DateTime?
+  lastOpenedAt DateTime?
+  isFavorite  Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  owner       User         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  team        Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  content     FileContent?
+
+  @@index([ownerUserId, updatedAt])
+  @@index([teamId, updatedAt])
+  @@index([isTrashed, updatedAt])
+}
+
+model FileContent {
+  fileId     String   @id
+  scene      Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  file       File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+}

@@ -1,0 +1,372 @@
+---
+title: Excalidraw+ 开发实施计划（按周+验收）
+sidebar_label: 开发实施计划（按周+验收）
+---
+
+# Excalidraw+ 开发实施计划（按周+验收）
+
+## 1. Scope & Goals
+
+Build a production-ready file system and team collaboration foundation on top of the open-source Excalidraw Web App:
+
+- User auth and account state
+- Personal files and team files
+- Hybrid storage (IndexedDB local replica + backend source of truth)
+- Extensible architecture for realtime collaboration, billing, and enterprise controls
+
+## 2. Timeline & Milestones
+
+## Current Progress (2026-02-07)
+
+### ✅ Completed: Phase 1 (Auth)
+
+- Backend auth endpoints are implemented:
+  - `POST /auth/register`
+  - `POST /auth/login`
+  - `POST /auth/logout`
+  - `GET /auth/me`
+- JWT HttpOnly cookie flow is wired end-to-end.
+- Frontend auth state (`unknown/guest/authenticated`) and sign-in dialog are integrated.
+
+### ✅ Completed: Phase 2 (Personal Files MVP)
+
+- Backend personal files endpoints are implemented:
+  - `GET /files?scope=personal`
+  - `POST /files`
+  - `GET /files/:id`
+  - `PUT /files/:id`
+  - `DELETE /files/:id` (soft delete)
+- `version` optimistic locking is enforced and returns `409 VERSION_CONFLICT`.
+- Owner-only permission checks are enforced on all file endpoints.
+- Frontend file module is integrated:
+  - `files-api.ts`, `files-jotai.ts`, `files/localStore.ts`, `files/files-scene.ts`
+  - Sidebar “My Files” list with create/open/delete actions
+  - IndexedDB local replica + debounced remote save loop
+  - Local `dirty/syncing/synced/conflict` state updates
+
+### ✅ Completed: Phase 3 (Team + Permissions)
+
+- Backend team domain and membership APIs are implemented:
+  - `GET /teams`
+  - `POST /teams`
+  - `GET /teams/:id/members`
+  - `POST /teams/:id/members`
+  - `PATCH /teams/:id/members/:userId`
+  - `DELETE /teams/:id/members/:userId`
+- File domain now supports team scope authorization:
+  - `GET /files?scope=team&teamId=...`
+  - Team members can access team files
+  - Non-members are blocked with `403 FORBIDDEN`
+- Frontend adds team-aware file scope switching (`personal / team / trash`).
+
+### ✅ Completed: Phase 4 (Core UX lifecycle subset)
+
+- Recycle bin lifecycle APIs are implemented:
+  - `POST /files/:id/restore`
+  - `DELETE /files/:id/permanent`
+- Favorites and recency metadata fields are added:
+  - `PATCH /files/:id/favorite`
+  - `lastOpenedAt` is updated when file content is fetched
+- Sidebar now supports:
+  - Trash view (restore / permanent delete)
+  - Favorite toggle
+  - Team creation and basic member management entry
+
+### ⚠️ Environment note
+
+- In local smoke tests, `GET /health` returns `503` when PostgreSQL is unavailable.
+- Full authenticated API E2E verification requires an available Postgres database.
+
+### Next Step
+
+- Continue hardening: add dedicated Team Members drawer/modal UX, role-edit/remove controls, and database-backed authenticated E2E tests.
+
+Recommended timeline: **10 weeks**.
+
+- Milestone 1 (W1-W2): Backend foundation + Auth
+- Milestone 2 (W3-W6): Personal file system + sync/conflict flows
+- Milestone 3 (W7-W8): Team model + permission model
+- Milestone 4 (W9-W10): UX hardening + observability + release readiness
+
+Feature flags from day 1:
+
+- `new_auth`
+- `new_files`
+- `new_team`
+
+## 3. Weekly Delivery Plan
+
+### Week 1: Backend foundation and API contracts
+
+**Build**
+
+- Initialize backend project (NestJS + TypeScript + ESLint + Prettier)
+- Configure PostgreSQL and ORM (Prisma or TypeORM)
+- Create baseline DB schema and migration pipeline
+- Define OpenAPI contract and unified error format
+
+**Deliverables**
+
+- Backend bootstrap repository and local startup docs
+- Initial schema for `users`, `files`, `file_contents`, `teams`, `team_members`
+- Shared API conventions (`error_code`, response envelope, pagination)
+
+**Acceptance**
+
+- Local environment starts with one command
+- Migrations are repeatable and reversible
+- OpenAPI spec is generated successfully
+- Contract review completed by frontend/backend
+
+### Week 2: Auth backend MVP
+
+**Build**
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/me`
+- Password hashing, HttpOnly cookie sessions, CSRF baseline, login rate limiting
+
+**Deliverables**
+
+- Auth module with DTO validation
+- Audit logs for auth events
+- Security baseline checklist
+
+**Acceptance**
+
+- Register/login/logout/me all pass E2E tests
+- Invalid credentials and duplicate email return stable error codes
+- Unauthorized calls correctly return 401/403
+- Cookie settings validated in browser (HttpOnly/SameSite/Secure policy)
+
+### Week 3: Frontend auth integration
+
+**Build**
+
+- Add `auth-api.ts` and `auth-jotai.ts`
+- Initialize current user state on app boot via `/auth/me`
+- Add lightweight login entry and authenticated user menu
+
+**Deliverables**
+
+- Auth client module with retry/error handling
+- Auth state atoms (`unknown/guest/authenticated`)
+- Session-expired fallback UX
+
+**Acceptance**
+
+- Refresh preserves authenticated state
+- Session expiration clears user state gracefully
+- Guest/authenticated navigation behavior is correct
+- No impact on core drawing performance
+
+### Week 4: Personal file backend MVP
+
+**Build**
+
+- Implement personal file APIs:
+  - `GET /files?scope=personal`
+  - `POST /files`
+  - `GET /files/:id`
+  - `PUT /files/:id`
+  - `DELETE /files/:id` (soft delete)
+- Implement optimistic locking (`version`) and owner-only access control
+
+**Deliverables**
+
+- File domain module with service-level permission checks
+- Soft delete fields (`is_trashed`, `trashed_at`)
+- Standardized conflict response (`409 + error_code`)
+
+**Acceptance**
+
+- Personal file CRUD works end-to-end
+- Concurrent updates produce deterministic conflict behavior
+- Cross-user access is blocked in all endpoints
+- File API E2E suite passes
+
+### Week 5: Frontend files module + sidebar
+
+**Build**
+
+- Add `files-api.ts`, `files-jotai.ts`, `files/localStore.ts`
+- Replace promo-oriented sidebar tab with file list panel
+- Add create/open/rename/delete interactions for personal files
+
+**Deliverables**
+
+- File metadata map and current file atoms
+- IndexedDB adapter for local file snapshot
+- File list panel with loading/empty/error states
+
+**Acceptance**
+
+- Open file from sidebar and restore scene reliably
+- File list updates after create/delete without hard refresh
+- UI supports both desktop and mobile breakpoints
+- No regression in existing menu and command palette behavior
+
+### Week 6: Save/sync/conflict UX hardening
+
+**Build**
+
+- Implement sync state machine: `dirty`, `syncing`, `synced`, `conflict`, `offline`
+- `onChange` local write + debounced remote save
+- Force flush on navigation/switching files
+- Conflict dialog with safe default action (save as copy)
+
+**Deliverables**
+
+- Stable autosave loop with retry/backoff
+- Conflict resolution modal and merge-safe fallback
+- Offline pending operation queue
+
+**Acceptance**
+
+- Typing/shape edits do not block on network roundtrip
+- Pending local edits survive tab refresh/reopen
+- Network interruption and recovery replay operations correctly
+- Conflict path is test-covered and user-recoverable
+
+### Week 7: Team backend and permissions
+
+**Build**
+
+- Implement team APIs:
+  - `GET /teams`
+  - `POST /teams`
+  - `GET /teams/:id/members`
+  - `POST /teams/:id/members`
+  - `PATCH /teams/:id/members/:userId`
+  - `DELETE /teams/:id/members/:userId`
+- Extend file access rules to support team scope
+
+**Deliverables**
+
+- Team role model: `owner/admin/member`
+- Permission matrix documented and enforced
+- Owner safety constraints (must keep at least one owner)
+
+**Acceptance**
+
+- Team creation/invite/role change/remove all functional
+- Team files are inaccessible to non-members
+- Role transitions obey safety constraints
+- Team permission E2E tests pass
+
+### Week 8: Frontend team integration
+
+**Build**
+
+- Add `teams-jotai.ts` and team switcher in files sidebar
+- Add team members management drawer
+- Support new file ownership target (personal/team)
+
+**Deliverables**
+
+- Unified scope switch (`personal + team`)
+- Team members UI with optimistic updates
+- Clear permission-based UI states (read/write/member management)
+
+**Acceptance**
+
+- Scope switching updates list and preserves editor stability
+- Creating team-scoped files stores correct ownership metadata
+- Role-based UI actions are accurate and enforced
+- Interaction path validated on desktop and mobile
+
+### Week 9: UX enhancement and lifecycle controls
+
+**Build**
+
+- Trash and restore flow:
+  - `POST /files/:id/restore`
+  - `DELETE /files/:id/permanent`
+- Add favorites and recent-open metadata behavior
+
+**Deliverables**
+
+- Trash panel and recovery flow
+- Favorite toggle and recent sorting
+- Cleanup policy doc (retention and permanent deletion)
+
+**Acceptance**
+
+- Soft-deleted files are restorable
+- Permanent delete is irreversible and audited
+- Favorite/recent ordering behavior is deterministic
+- UX copy and i18n keys completed
+
+### Week 10: Reliability, observability, release readiness
+
+**Build**
+
+- Add dashboards/alerts for sync and permission failures
+- Performance validation (save latency and conflict rate)
+- UAT and staged rollout with rollback playbook
+
+**Deliverables**
+
+- Metrics and alert runbook
+- Release checklist and incident response SOP
+- Post-launch monitoring plan
+
+**Acceptance**
+
+- Key SLOs are defined and visible
+- UAT sign-off completed
+- Staged rollout and rollback drill completed
+- Production release checklist completed
+
+## 4. Definition of Done (Global)
+
+A phase is done only when all dimensions pass:
+
+- **Functional:** User stories and API contracts pass acceptance
+- **Quality:** Unit/E2E coverage for critical flows is green
+- **Security:** Auth, CSRF, permission, and rate limiting are enforced
+- **Observability:** Core metrics and logs are available
+- **UX:** No regressions in core drawing workflows
+
+## 5. Risk Register and Mitigation
+
+### Version conflicts
+
+- Risk: user edits diverge from server state
+- Mitigation: stable `409` contract + save-as-copy fallback + explicit conflict UI
+
+### Offline reliability
+
+- Risk: perceived save success with unsynced remote state
+- Mitigation: explicit sync badge + pending queue + replay with retries
+
+### Permission drift
+
+- Risk: inconsistent checks between API endpoints
+- Mitigation: centralized permission guard in service layer + permission E2E suite
+
+### Performance under large scenes
+
+- Risk: save and open latency increase
+- Mitigation: snapshot chunking, image payload offloading (future object storage), lazy list rendering
+
+## 6. KPI & Success Metrics
+
+- Auth success rate
+- File save p95 latency
+- Sync failure rate
+- Conflict incidence rate
+- Permission denied error rate
+- Weekly active users editing files
+
+## 7. Current Code Anchors (Implementation Mapping)
+
+- App scene save lifecycle: `excalidraw-app/App.tsx`
+- Sidebar mount point: `excalidraw-app/App.tsx`
+- Sidebar UI replacement target: `excalidraw-app/components/AppSidebar.tsx`
+- App-level Jotai store: `excalidraw-app/app-jotai.ts`
+- Local data and IndexedDB bridge: `excalidraw-app/data/LocalData.ts`
+- Collaboration module boundary: `excalidraw-app/collab/Collab.tsx`
+- Theme token system: `packages/excalidraw/css/theme.scss`
