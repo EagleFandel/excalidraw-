@@ -18,7 +18,7 @@ FROM --platform=${TARGETPLATFORM} nginx:1.27-alpine
 COPY --from=build /opt/node_app/excalidraw-app/build /usr/share/nginx/html
 
 ENV PORT=80
-ENV API_UPSTREAM=http://backend:3005/
+ENV API_UPSTREAM=http://127.0.0.1:3005
 
 COPY docker/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 
