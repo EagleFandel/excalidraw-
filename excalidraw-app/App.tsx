@@ -247,6 +247,25 @@ const shareableLinkConfirmDialog = {
   color: "danger",
 } as const;
 
+const getFilesPanelErrorMessage = (error: unknown, fallback: string) => {
+  if (!(error instanceof FilesApiError)) {
+    return fallback;
+  }
+
+  switch (error.code) {
+    case "FORBIDDEN":
+      return "No permission for this action";
+    case "FILE_NOT_FOUND":
+      return "File no longer exists";
+    case "UNAUTHORIZED":
+      return "Please sign in again";
+    case "VERSION_CONFLICT":
+      return "Version conflict detected";
+    default:
+      return error.message || fallback;
+  }
+};
+
 const initializeScene = async (opts: {
   collabAPI: CollabAPI | null;
   excalidrawAPI: ExcalidrawImperativeAPI;
@@ -678,6 +697,7 @@ const ExcalidrawWrapper = () => {
       title?: string;
       scope?: "personal" | "team";
       teamId?: string | null;
+      scene?: ReturnType<typeof serializeSceneFromExcalidraw>;
     }) => {
       if (!isAuthenticated || !excalidrawAPI) {
         return;
@@ -685,7 +705,7 @@ const ExcalidrawWrapper = () => {
 
       setFilesPanelError("");
       try {
-        const scene = getEmptyFileScene();
+        const scene = input?.scene || getEmptyFileScene();
         const scope = input?.scope || (currentScope === "team" ? "team" : "personal");
         const teamId =
           scope === "team" ? (input?.teamId || currentTeamId || null) : null;
@@ -978,8 +998,35 @@ const ExcalidrawWrapper = () => {
         }
 
         await loadScopedFiles();
-      } catch {
-        setFilesPanelError("Failed to delete file");
+      } catch (error) {
+        if (error instanceof FilesApiError && error.code === "FILE_NOT_FOUND") {
+          await MyFilesLocalStore.deleteLocalFile(fileId);
+          delete saveVersionRef.current[fileId];
+
+          const nextFiles = filesList.filter((file) => file.id !== fileId);
+          setFilesList(nextFiles);
+          setFileMetaMap((prev) => {
+            const next = { ...prev };
+            delete next[fileId];
+            return next;
+          });
+
+          if (currentFileIdRef.current === fileId) {
+            setCurrentFileId(null);
+
+            if (nextFiles[0]) {
+              await openFile(nextFiles[0].id);
+            } else {
+              applyPersonalFileScene(getEmptyFileScene());
+              setFileSyncState("idle");
+            }
+          }
+
+          await loadScopedFiles();
+          return;
+        }
+
+        setFilesPanelError(getFilesPanelErrorMessage(error, "Failed to delete file"));
       }
     },
     [
@@ -2049,14 +2096,39 @@ const ExcalidrawWrapper = () => {
             }
 
             try {
-              const latest = await filesApi.getFile(conflictContext.fileId);
               const localScene = serializeSceneFromExcalidraw(excalidrawAPI);
-              const saved = await filesApi.saveFile({
-                fileId: conflictContext.fileId,
-                version: latest.version,
-                title: latest.title,
-                scene: localScene,
-              });
+              let attempts = 0;
+              let saved: Awaited<ReturnType<typeof filesApi.saveFile>> | null = null;
+
+              while (!saved && attempts < 3) {
+                const latest = await filesApi.getFile(conflictContext.fileId);
+
+                try {
+                  saved = await filesApi.saveFile({
+                    fileId: conflictContext.fileId,
+                    version: latest.version,
+                    title: latest.title,
+                    scene: localScene,
+                  });
+                } catch (error) {
+                  if (
+                    error instanceof FilesApiError &&
+                    error.code === "VERSION_CONFLICT" &&
+                    attempts < 2
+                  ) {
+                    attempts += 1;
+                    continue;
+                  }
+
+                  throw error;
+                }
+
+                attempts += 1;
+              }
+
+              if (!saved) {
+                throw new Error("OVERWRITE_CONFLICT_RETRY_EXHAUSTED");
+              }
 
               saveVersionRef.current[saved.id] = saved.version;
               await MyFilesLocalStore.setLocalFile({
@@ -2087,8 +2159,13 @@ const ExcalidrawWrapper = () => {
               );
               setConflictContext(null);
               setFileSyncState("synced");
-            } catch {
-              setFilesPanelError("Failed to resolve conflict by overwrite");
+            } catch (error) {
+              setFilesPanelError(
+                getFilesPanelErrorMessage(
+                  error,
+                  "Failed to resolve conflict by overwrite",
+                ),
+              );
             }
           }}
           onSaveAsCopy={async () => {
@@ -2098,15 +2175,19 @@ const ExcalidrawWrapper = () => {
 
             try {
               const fileMeta = fileMetaMapRef.current[conflictContext.fileId];
+              const localScene = serializeSceneFromExcalidraw(excalidrawAPI);
               await createFile({
                 title: `${fileMeta?.title || t("labels.untitled")} (${t("labels.copy")})`,
                 scope: fileMeta?.teamId ? "team" : "personal",
                 teamId: fileMeta?.teamId || null,
+                scene: localScene,
               });
               setConflictContext(null);
               setFileSyncState("synced");
-            } catch {
-              setFilesPanelError("Failed to save conflict copy");
+            } catch (error) {
+              setFilesPanelError(
+                getFilesPanelErrorMessage(error, "Failed to save conflict copy"),
+              );
             }
           }}
         />
