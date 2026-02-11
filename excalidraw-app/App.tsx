@@ -701,6 +701,31 @@ const ExcalidrawWrapper = () => {
         }));
         setFileSyncState("synced");
       } catch (error) {
+        if (error instanceof FilesApiError && error.code === "FILE_NOT_FOUND") {
+          await MyFilesLocalStore.deleteLocalFile(fileId);
+          delete saveVersionRef.current[fileId];
+
+          setPendingOps((prev) =>
+            prev.filter((op) => !(op.type === "save" && op.fileId === fileId)),
+          );
+          setConflictContext((prev) => (prev?.fileId === fileId ? null : prev));
+          setFilesList((prev) => prev.filter((file) => file.id !== fileId));
+          setFileMetaMap((prev) => {
+            const next = { ...prev };
+            delete next[fileId];
+            return next;
+          });
+
+          if (currentFileIdRef.current === fileId) {
+            setCurrentFileId(null);
+            applyPersonalFileScene(getEmptyFileScene());
+            setFileSyncState("idle");
+          }
+
+          setFilesPanelError(t("excPlus.errors.fileNotFound"));
+          return;
+        }
+
         if (!local) {
           setFilesPanelError(
             getFilesPanelErrorMessage(error, t("excPlus.files.errors.openFile")),
@@ -712,6 +737,8 @@ const ExcalidrawWrapper = () => {
       applyPersonalFileScene,
       excalidrawAPI,
       setCurrentFileId,
+      setPendingOps,
+      setConflictContext,
       setFileMetaMap,
       setFileSyncState,
       setFilesList,
@@ -865,6 +892,35 @@ const ExcalidrawWrapper = () => {
             return;
           }
 
+          if (error instanceof FilesApiError && error.code === "FILE_NOT_FOUND") {
+            await MyFilesLocalStore.deleteLocalFile(opts.fileId);
+            delete saveVersionRef.current[opts.fileId];
+
+            setPendingOps((prev) =>
+              prev.filter(
+                (op) => !(op.type === "save" && op.fileId === opts.fileId),
+              ),
+            );
+            setConflictContext((prev) =>
+              prev?.fileId === opts.fileId ? null : prev,
+            );
+            setFilesList((prev) => prev.filter((file) => file.id !== opts.fileId));
+            setFileMetaMap((prev) => {
+              const next = { ...prev };
+              delete next[opts.fileId];
+              return next;
+            });
+
+            if (currentFileIdRef.current === opts.fileId) {
+              setCurrentFileId(null);
+              applyPersonalFileScene(getEmptyFileScene());
+              setFileSyncState("idle");
+            }
+
+            setFilesPanelError(t("excPlus.errors.fileNotFound"));
+            return;
+          }
+
           if (!navigator.onLine) {
             setPendingOps((prev) =>
               enqueuePendingOp(prev, {
@@ -975,6 +1031,35 @@ const ExcalidrawWrapper = () => {
               setFileSyncState("conflict");
               setPendingOps(queueSnapshot);
               return;
+            } else if (
+              error instanceof FilesApiError &&
+              error.code === "FILE_NOT_FOUND"
+            ) {
+              await MyFilesLocalStore.deleteLocalFile(op.fileId);
+              delete saveVersionRef.current[op.fileId];
+
+              setConflictContext((prev) =>
+                prev?.fileId === op.fileId ? null : prev,
+              );
+              setFilesList((prev) =>
+                prev.filter((file) => file.id !== op.fileId),
+              );
+              setFileMetaMap((prev) => {
+                const next = { ...prev };
+                delete next[op.fileId];
+                return next;
+              });
+
+              if (currentFileIdRef.current === op.fileId) {
+                setCurrentFileId(null);
+                applyPersonalFileScene(getEmptyFileScene());
+                setFileSyncState("idle");
+              }
+
+              queueSnapshot = queue;
+              setPendingOps(queueSnapshot);
+              setFilesPanelError(t("excPlus.errors.fileNotFound"));
+              continue;
             } else {
               const retried = markPendingOpForRetry(op, {
                 errorCode:
@@ -1007,10 +1092,13 @@ const ExcalidrawWrapper = () => {
       replayingPendingOpsRef.current = false;
     }
   }, [
+    applyPersonalFileScene,
+    setCurrentFileId,
     pendingOps,
     setFileMetaMap,
     setFileSyncState,
     setFilesList,
+    setFilesPanelError,
     setConflictContext,
     setPendingOps,
   ]);
@@ -1032,6 +1120,12 @@ const ExcalidrawWrapper = () => {
 
         const nextFiles = filesList.filter((file) => file.id !== fileId);
         setFilesList(nextFiles);
+        setPendingOps((prev) =>
+          prev.filter((op) => !(op.type === "save" && op.fileId === fileId)),
+        );
+        setConflictContext((prev) =>
+          prev?.fileId === fileId ? null : prev,
+        );
         setFileMetaMap((prev) => {
           const next = { ...prev };
           delete next[fileId];
@@ -1057,6 +1151,12 @@ const ExcalidrawWrapper = () => {
 
           const nextFiles = filesList.filter((file) => file.id !== fileId);
           setFilesList(nextFiles);
+          setPendingOps((prev) =>
+            prev.filter((op) => !(op.type === "save" && op.fileId === fileId)),
+          );
+          setConflictContext((prev) =>
+            prev?.fileId === fileId ? null : prev,
+          );
           setFileMetaMap((prev) => {
             const next = { ...prev };
             delete next[fileId];
@@ -1091,6 +1191,8 @@ const ExcalidrawWrapper = () => {
       openFile,
       saveCurrentFileDebounced,
       setCurrentFileId,
+      setPendingOps,
+      setConflictContext,
       setFileMetaMap,
       setFileSyncState,
       setFilesList,
