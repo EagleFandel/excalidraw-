@@ -346,7 +346,7 @@ export const Socials = () => {
     <>
       <DropdownMenuItemLink
         icon={GithubIcon}
-        href="https://github.com/excalidraw/excalidraw"
+        href="https://github.com/EagleFandel/excalidraw_plus"
         aria-label="GitHub"
       >
         GitHub

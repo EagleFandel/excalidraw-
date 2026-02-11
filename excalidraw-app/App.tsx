@@ -2483,7 +2483,7 @@ const ExcalidrawWrapper = () => {
               ],
               perform: () => {
                 window.open(
-                  "https://github.com/excalidraw/excalidraw",
+                  "https://github.com/EagleFandel/excalidraw_plus",
                   "_blank",
                   "noopener noreferrer",
                 );
