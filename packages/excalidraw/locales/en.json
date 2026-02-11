@@ -777,6 +777,18 @@
         "serverVersion": "Server version: {{version}}",
         "saveAsCopy": "Save as copy",
         "overwrite": "Overwrite remote"
+      },
+      "errors": {
+        "loadFiles": "Failed to load files",
+        "openFile": "Failed to open file",
+        "createFile": "Failed to create file",
+        "deleteFile": "Failed to delete file",
+        "restoreFile": "Failed to restore file",
+        "permanentDeleteFile": "Failed to permanently delete file",
+        "favoriteFile": "Failed to update favorite",
+        "renameFile": "Failed to rename file",
+        "overwriteConflict": "Failed to resolve conflict by overwrite",
+        "saveConflictCopy": "Failed to save conflict copy"
       }
     },
     "teams": {
@@ -791,10 +803,50 @@
         "creating": "Creating...",
         "nameRequired": "Team name is required",
         "failed": "Failed to create team"
+      },
+      "roles": {
+        "owner": "owner",
+        "admin": "admin",
+        "member": "member"
+      },
+      "membersDialog": {
+        "title": "Team Members · {{name}}",
+        "titleFallback": "Team Members",
+        "regionAria": "Team members management",
+        "loading": "Loading...",
+        "refresh": "Refresh",
+        "inviteEmail": "Invite Email",
+        "inviteEmailPlaceholder": "member@example.com",
+        "role": "Role",
+        "roleSelectAria": "Invite role",
+        "inviting": "Inviting...",
+        "addMember": "Add Member",
+        "readOnlyHint": "You have read-only member access.",
+        "you": "You",
+        "memberRoleAria": "Role for {{email}}",
+        "removeAria": "Remove {{email}}",
+        "removeConfirm": "Remove {{email}} from this team?",
+        "remove": "Remove",
+        "empty": "No members found."
+      },
+      "errors": {
+        "loadTeams": "Failed to load teams",
+        "createTeam": "Failed to create team",
+        "loadMembers": "Failed to load team members",
+        "addMember": "Failed to add team member",
+        "updateMemberRole": "Failed to update member role",
+        "removeMember": "Failed to remove team member"
       }
     },
     "ai": {
       "rateLimitHint": "Please try again later."
+    },
+    "errors": {
+      "forbidden": "No permission for this action",
+      "fileNotFound": "File no longer exists",
+      "unauthorized": "Please sign in again",
+      "versionConflict": "Version conflict detected",
+      "notFound": "Resource not found"
     }
   },
   "keys": {

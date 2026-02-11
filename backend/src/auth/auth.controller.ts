@@ -8,6 +8,12 @@ import {
   Req,
   Res,
 } from "@nestjs/common";
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
@@ -18,11 +24,17 @@ type RequestWithCookies = Request & {
   cookies?: Record<string, string | undefined>;
 };
 
+const AUTH_THROTTLE_LIMIT = Number(process.env.AUTH_THROTTLE_LIMIT || 10);
+const AUTH_THROTTLE_TTL = Number(process.env.AUTH_THROTTLE_TTL || 60) * 1000;
+
+@ApiTags("auth")
 @Controller("auth")
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Get("csrf")
+  @ApiOperation({ summary: "Issue CSRF token and cookie" })
+  @ApiResponse({ status: 200, description: "CSRF token issued" })
   csrf(@Res({ passthrough: true }) response: Response) {
     const csrfToken = this.authService.generateCsrfToken();
     this.authService.setCsrfCookie(response, csrfToken);
@@ -30,6 +42,15 @@ export class AuthController {
   }
 
   @Post("register")
+  @Throttle({
+    default: {
+      limit: AUTH_THROTTLE_LIMIT,
+      ttl: AUTH_THROTTLE_TTL,
+    },
+  })
+  @ApiOperation({ summary: "Register account" })
+  @ApiResponse({ status: 201, description: "Registered successfully" })
+  @ApiResponse({ status: 409, description: "Email already registered" })
   async register(@Body() input: RegisterDto, @Res({ passthrough: true }) response: Response) {
     const user = await this.authService.register({
       email: input.email.trim().toLowerCase(),
@@ -45,6 +66,15 @@ export class AuthController {
 
   @Post("login")
   @HttpCode(HttpStatus.OK)
+  @Throttle({
+    default: {
+      limit: AUTH_THROTTLE_LIMIT,
+      ttl: AUTH_THROTTLE_TTL,
+    },
+  })
+  @ApiOperation({ summary: "Login with email and password" })
+  @ApiResponse({ status: 200, description: "Logged in" })
+  @ApiResponse({ status: 401, description: "Invalid credentials" })
   async login(@Body() input: LoginDto, @Res({ passthrough: true }) response: Response) {
     const user = await this.authService.login({
       email: input.email.trim().toLowerCase(),
@@ -57,6 +87,14 @@ export class AuthController {
 
   @Post("logout")
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({
+    default: {
+      limit: AUTH_THROTTLE_LIMIT,
+      ttl: AUTH_THROTTLE_TTL,
+    },
+  })
+  @ApiOperation({ summary: "Logout current user" })
+  @ApiResponse({ status: 204, description: "Logged out" })
   async logout(@Res({ passthrough: true }) response: Response) {
     const cookieName = this.authService.getAuthCookieName();
     const token = (response.req as RequestWithCookies)?.cookies?.[cookieName];
@@ -69,6 +107,15 @@ export class AuthController {
   }
 
   @Get("me")
+  @Throttle({
+    default: {
+      limit: AUTH_THROTTLE_LIMIT,
+      ttl: AUTH_THROTTLE_TTL,
+    },
+  })
+  @ApiOperation({ summary: "Get current authenticated user" })
+  @ApiResponse({ status: 200, description: "Authenticated user" })
+  @ApiResponse({ status: 401, description: "Unauthenticated" })
   async me(
     @Req() request: RequestWithCookies,
     @Res({ passthrough: true }) response: Response,

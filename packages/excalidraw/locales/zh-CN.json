@@ -735,7 +735,14 @@
       "dirty": "未保存",
       "idle": "空闲",
       "offline": "离线",
-      "conflict": "冲突",
+      "conflict": {
+        "title": "版本冲突",
+        "description": "{{title}} 在其他位置已更新，请选择处理方式。",
+        "localVersion": "本地版本：{{version}}",
+        "serverVersion": "服务端版本：{{version}}",
+        "saveAsCopy": "另存副本",
+        "overwrite": "覆盖远端"
+      },
       "toolbar": "文件筛选",
       "search": "搜索",
       "searchPlaceholder": "按文件名搜索",
@@ -770,13 +777,17 @@
         "teamRequired": "请选择团队",
         "failed": "创建文件失败"
       },
-      "conflict": {
-        "title": "版本冲突",
-        "description": "{{title}} 在其他位置已更新，请选择处理方式。",
-        "localVersion": "本地版本：{{version}}",
-        "serverVersion": "服务端版本：{{version}}",
-        "saveAsCopy": "另存副本",
-        "overwrite": "覆盖远端"
+      "errors": {
+        "loadFiles": "??????",
+        "openFile": "??????",
+        "createFile": "??????",
+        "deleteFile": "??????",
+        "restoreFile": "??????",
+        "permanentDeleteFile": "????????",
+        "favoriteFile": "??????",
+        "renameFile": "???????",
+        "overwriteConflict": "??????",
+        "saveConflictCopy": "??????"
       }
     },
     "teams": {
@@ -791,10 +802,50 @@
         "creating": "创建中...",
         "nameRequired": "请输入团队名称",
         "failed": "创建团队失败"
+      },
+      "roles": {
+        "owner": "???",
+        "admin": "???",
+        "member": "??"
+      },
+      "membersDialog": {
+        "title": "???? ? {{name}}",
+        "titleFallback": "????",
+        "regionAria": "??????",
+        "loading": "???...",
+        "refresh": "??",
+        "inviteEmail": "????",
+        "inviteEmailPlaceholder": "member@example.com",
+        "role": "??",
+        "roleSelectAria": "????",
+        "inviting": "???...",
+        "addMember": "????",
+        "readOnlyHint": "???????????",
+        "you": "?",
+        "memberRoleAria": "{{email}} ???",
+        "removeAria": "?? {{email}}",
+        "removeConfirm": "??? {{email}} ??????",
+        "remove": "??",
+        "empty": "?????"
+      },
+      "errors": {
+        "loadTeams": "??????",
+        "createTeam": "??????",
+        "loadMembers": "????????",
+        "addMember": "????????",
+        "updateMemberRole": "????????",
+        "removeMember": "????????"
       }
     },
     "ai": {
       "rateLimitHint": "请稍后再试。"
+    },
+    "errors": {
+      "forbidden": "???????",
+      "fileNotFound": "?????????",
+      "unauthorized": "?????",
+      "versionConflict": "???????",
+      "notFound": "?????"
     }
   },
   "keys": {

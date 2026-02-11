@@ -29,7 +29,7 @@ const Header = () => (
     </a>
     <a
       className="HelpDialog__btn"
-      href="https://plus.excalidraw.com/blog"
+      href="https://blog.excalidraw.com"
       target="_blank"
       rel="noopener"
     >

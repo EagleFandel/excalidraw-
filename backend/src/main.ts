@@ -5,11 +5,11 @@ import cookieParser from "cookie-parser";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ConfigService } from "@nestjs/config";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 
 import { AppModule } from "./app.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { CsrfGuard } from "./common/guards/csrf.guard";
-import { RateLimitGuard } from "./common/guards/rate-limit.guard";
 import { RequestLogInterceptor } from "./common/interceptors/request-log.interceptor";
 import { MetricsService } from "./common/metrics/metrics.service";
 
@@ -33,7 +33,7 @@ const bootstrap = async () => {
 
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new RequestLogInterceptor());
-  app.useGlobalGuards(app.get(RateLimitGuard), app.get(CsrfGuard));
+  app.useGlobalGuards(app.get(CsrfGuard));
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN || "http://localhost:3001",
@@ -47,6 +47,23 @@ const bootstrap = async () => {
       path: request.path || "",
     });
     next();
+  });
+
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle("Excalidraw+ API")
+    .setDescription("Excalidraw+ backend API documentation")
+    .setVersion("1.0.0")
+    .build();
+
+  const openApiDocument = SwaggerModule.createDocument(app, swaggerConfig, {
+    ignoreGlobalPrefix: false,
+  });
+
+  SwaggerModule.setup("api/docs", app, openApiDocument, {
+    jsonDocumentUrl: "/api/docs-json",
+  });
+  expressApp.get("/api/docs-json", (_request: unknown, response: { json: (body: unknown) => void }) => {
+    response.json(openApiDocument);
   });
 
   const port = Number(process.env.BACKEND_PORT || process.env.PORT || 3005);

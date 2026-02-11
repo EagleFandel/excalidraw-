@@ -386,8 +386,8 @@ A phase is done only when all dimensions pass:
 | C. Team create/manage UX | ✅ Done | Added create-team modal and role-driven member management behavior. |
 | D. i18n en + zh-CN coverage for new UX | ✅ Done | Added `excPlus.*` locale keys in `en.json` and `zh-CN.json`. |
 | E. CSRF baseline (double submit) | ✅ Done | Added `/api/auth/csrf`, global CSRF guard, and frontend CSRF fetch wrapper. |
-| E. Rate limiting baseline | ✅ Done | Added global in-memory rate-limit guard with stricter auth threshold. |
-| E. OpenAPI docs endpoint | ✅ Done | Added `/api/docs` and `/api/docs-json`. |
+| E. Rate limiting baseline | ✅ Done | Migrated to `@nestjs/throttler` + proxy-aware global guard, with stricter auth throttling via `@Throttle`. |
+| E. OpenAPI docs endpoint | ✅ Done | Migrated to `@nestjs/swagger` (`SwaggerModule`) for `/api/docs` and `/api/docs-json`. |
 | E. Audit logging | ✅ Done | Added `AuditLog` model + migration + service-level event logging. |
 | E. Metrics baseline | ✅ Done | Added optional `/api/metrics` endpoint controlled by `METRICS_ENABLED`. |
 
@@ -415,9 +415,26 @@ A phase is done only when all dimensions pass:
 - `yarn --cwd excalidraw-app build:app:docker`
 - `yarn test:app --watch=false`
 
+### 8.4.1 Runtime link-off check
+
+- `rg -n "plus\.excalidraw\.com|app\.excalidraw\.com|excalidraw-redirect" excalidraw-app packages --glob "*.ts" --glob "*.tsx" --glob "*.html"`
+- `rg -n "ExportToExcalidrawPlus|ExcalidrawPlusIframeExport|VITE_APP_PLUS" excalidraw-app packages`
+
+Result: no runtime references found.
+
 ### 8.5 Validation result summary
 
 - Backend build: ✅ pass
-- Backend API E2E checklist (extended): ✅ pass (32 passed, 0 failed)
-- Frontend production build: ✅ pass
+- Backend API E2E checklist (extended): ⚠️ blocked in this environment (local PostgreSQL engine unavailable for script startup)
+- Frontend production build: ⚠️ blocked by pre-existing upstream TypeScript typing errors in shared collab/encryption modules (outside this change set)
 - Full monorepo vitest: ⚠️ one flaky timeout observed (`packages/element/tests/zindex.test.tsx`), isolated re-run passed.
+
+
+### 8.6 2026-02-11 strict alignment completion
+
+- Official Plus/App runtime redirects are removed from active app code paths.
+- Team member management UI is upgraded to drawer-style experience with locale-based copy and a11y labels.
+- Offline pending-op replay now uses exponential backoff + jitter and timer scheduling via `nextRetryAt`.
+- Backend docs are now generated via `@nestjs/swagger`; manual docs controller is removed.
+- Backend rate limiting now uses `@nestjs/throttler`; custom in-memory guard is removed.
+- `429` responses are normalized to `{ error: { code: "RATE_LIMITED", message: "Too many requests" } }`.

@@ -148,8 +148,9 @@ import {
 } from "./files/files-jotai";
 import { MyFilesLocalStore } from "./files/localStore";
 import {
-  dequeuePendingOp,
+  dequeueReadyPendingOp,
   enqueuePendingOp,
+  markPendingOpForRetry,
 } from "./files/sync-queue";
 import { ConflictDialog } from "./files/components/conflict-dialog";
 import { CreateFileModal } from "./files/components/create-file-modal";
@@ -254,16 +255,35 @@ const getFilesPanelErrorMessage = (error: unknown, fallback: string) => {
 
   switch (error.code) {
     case "FORBIDDEN":
-      return "No permission for this action";
+      return t("excPlus.errors.forbidden");
     case "FILE_NOT_FOUND":
-      return "File no longer exists";
+      return t("excPlus.errors.fileNotFound");
     case "UNAUTHORIZED":
-      return "Please sign in again";
+      return t("excPlus.errors.unauthorized");
     case "VERSION_CONFLICT":
-      return "Version conflict detected";
+      return t("excPlus.errors.versionConflict");
     default:
       return error.message || fallback;
   }
+};
+
+const getTeamsPanelErrorMessage = (error: unknown, fallback: string) => {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.toLowerCase();
+  if (message.includes("unauthorized") || message.includes("sign in")) {
+    return t("excPlus.errors.unauthorized");
+  }
+  if (message.includes("forbidden") || message.includes("permission")) {
+    return t("excPlus.errors.forbidden");
+  }
+  if (message.includes("not found")) {
+    return t("excPlus.errors.notFound");
+  }
+
+  return fallback;
 };
 
 const initializeScene = async (opts: {
@@ -504,6 +524,7 @@ const ExcalidrawWrapper = () => {
 
   const saveVersionRef = useRef<Record<string, number>>({});
   const replayingPendingOpsRef = useRef(false);
+  const pendingOpsTimerRef = useRef<number | null>(null);
   const filesListRef = useRef(filesList);
   const fileMetaMapRef = useRef<Record<string, (typeof filesList)[number]>>({});
 
@@ -553,8 +574,10 @@ const ExcalidrawWrapper = () => {
       if (!currentTeamId && remoteTeams[0]) {
         setCurrentTeamId(remoteTeams[0].id);
       }
-    } catch {
-      setTeamsPanelError("Failed to load teams");
+    } catch (error) {
+      setTeamsPanelError(
+        getTeamsPanelErrorMessage(error, t("excPlus.teams.errors.loadTeams")),
+      );
     }
   }, [
     currentTeamId,
@@ -609,8 +632,10 @@ const ExcalidrawWrapper = () => {
         },
         {},
       );
-    } catch {
-      setFilesPanelError("Failed to load files");
+    } catch (error) {
+      setFilesPanelError(
+        getFilesPanelErrorMessage(error, t("excPlus.files.errors.loadFiles")),
+      );
     }
   }, [
     currentScope,
@@ -675,9 +700,11 @@ const ExcalidrawWrapper = () => {
           [remote.id]: remote,
         }));
         setFileSyncState("synced");
-      } catch {
+      } catch (error) {
         if (!local) {
-          setFilesPanelError("Failed to open file");
+          setFilesPanelError(
+            getFilesPanelErrorMessage(error, t("excPlus.files.errors.openFile")),
+          );
         }
       }
     },
@@ -739,8 +766,10 @@ const ExcalidrawWrapper = () => {
         setFileSyncState("synced");
         setIsCreateFileModalOpen(false);
         await loadScopedFiles();
-      } catch {
-        setFilesPanelError("Failed to create file");
+      } catch (error) {
+        setFilesPanelError(
+          getFilesPanelErrorMessage(error, t("excPlus.files.errors.createFile")),
+        );
         throw new Error("CREATE_FILE_FAILED");
       }
     },
@@ -844,6 +873,8 @@ const ExcalidrawWrapper = () => {
                 version: currentVersion,
                 title: opts.title,
                 scene: opts.scene,
+                attempt: 0,
+                nextRetryAt: Date.now(),
               }),
             );
             setFileSyncState("offline");
@@ -858,6 +889,8 @@ const ExcalidrawWrapper = () => {
                 version: currentVersion,
                 title: opts.title,
                 scene: opts.scene,
+                attempt: 0,
+                nextRetryAt: Date.now(),
               }),
             );
           }
@@ -887,8 +920,11 @@ const ExcalidrawWrapper = () => {
           return;
         }
 
-        const { op, queue } = dequeuePendingOp(queueSnapshot);
+        const { op, queue, nextRetryAt } = dequeueReadyPendingOp(queueSnapshot);
         if (!op) {
+          if (typeof nextRetryAt === "number") {
+            setPendingOps(queueSnapshot);
+          }
           break;
         }
 
@@ -937,8 +973,19 @@ const ExcalidrawWrapper = () => {
                 serverVersion: error.currentVersion || op.version,
               });
               setFileSyncState("conflict");
+              setPendingOps(queueSnapshot);
+              return;
             } else {
-              setFileSyncState(navigator.onLine ? "dirty" : "offline");
+              const retried = markPendingOpForRetry(op, {
+                errorCode:
+                  error instanceof FilesApiError
+                    ? error.code
+                    : error instanceof Error
+                    ? error.name
+                    : "UNKNOWN",
+              });
+              queueSnapshot = enqueuePendingOp(queue, retried);
+              setFileSyncState("offline");
             }
 
             setPendingOps(queueSnapshot);
@@ -949,8 +996,13 @@ const ExcalidrawWrapper = () => {
         queueSnapshot = queue;
       }
 
-      setPendingOps([]);
-      setFileSyncState("synced");
+      if (!queueSnapshot.length) {
+        setPendingOps([]);
+        setFileSyncState("synced");
+      } else {
+        setPendingOps(queueSnapshot);
+        setFileSyncState("offline");
+      }
     } finally {
       replayingPendingOpsRef.current = false;
     }
@@ -1026,7 +1078,9 @@ const ExcalidrawWrapper = () => {
           return;
         }
 
-        setFilesPanelError(getFilesPanelErrorMessage(error, "Failed to delete file"));
+        setFilesPanelError(
+          getFilesPanelErrorMessage(error, t("excPlus.files.errors.deleteFile")),
+        );
       }
     },
     [
@@ -1049,8 +1103,10 @@ const ExcalidrawWrapper = () => {
       try {
         await filesApi.restoreFile(fileId);
         await loadScopedFiles();
-      } catch {
-        setFilesPanelError("Failed to restore file");
+      } catch (error) {
+        setFilesPanelError(
+          getFilesPanelErrorMessage(error, t("excPlus.files.errors.restoreFile")),
+        );
       }
     },
     [loadScopedFiles, setFilesPanelError],
@@ -1063,8 +1119,13 @@ const ExcalidrawWrapper = () => {
         await MyFilesLocalStore.deleteLocalFile(fileId);
         delete saveVersionRef.current[fileId];
         await loadScopedFiles();
-      } catch {
-        setFilesPanelError("Failed to permanently delete file");
+      } catch (error) {
+        setFilesPanelError(
+          getFilesPanelErrorMessage(
+            error,
+            t("excPlus.files.errors.permanentDeleteFile"),
+          ),
+        );
       }
     },
     [loadScopedFiles, setFilesPanelError],
@@ -1084,8 +1145,10 @@ const ExcalidrawWrapper = () => {
             ...file,
           },
         }));
-      } catch {
-        setFilesPanelError("Failed to update favorite");
+      } catch (error) {
+        setFilesPanelError(
+          getFilesPanelErrorMessage(error, t("excPlus.files.errors.favoriteFile")),
+        );
       }
     },
     [setFileMetaMap, setFilesList, setFilesPanelError],
@@ -1141,8 +1204,10 @@ const ExcalidrawWrapper = () => {
           ...prev,
           [saved.id]: saved,
         }));
-      } catch {
-        setFilesPanelError("Failed to rename file");
+      } catch (error) {
+        setFilesPanelError(
+          getFilesPanelErrorMessage(error, t("excPlus.files.errors.renameFile")),
+        );
       }
     },
     [setFileMetaMap, setFilesList, setFilesPanelError],
@@ -1157,15 +1222,17 @@ const ExcalidrawWrapper = () => {
 
       try {
         const created = await teamsApi.createTeam(trimmedName);
-      setTeams((prev) => [created, ...prev]);
-      setCurrentScope("team");
-      setCurrentTeamId(created.id);
-      setTrashSourceScope("team");
-      setIsCreateTeamModalOpen(false);
-    } catch {
-      setTeamsPanelError("Failed to create team");
-      throw new Error("CREATE_TEAM_FAILED");
-    }
+        setTeams((prev) => [created, ...prev]);
+        setCurrentScope("team");
+        setCurrentTeamId(created.id);
+        setTrashSourceScope("team");
+        setIsCreateTeamModalOpen(false);
+      } catch (error) {
+        setTeamsPanelError(
+          getTeamsPanelErrorMessage(error, t("excPlus.teams.errors.createTeam")),
+        );
+        throw new Error("CREATE_TEAM_FAILED");
+      }
     },
     [
       setCurrentScope,
@@ -1189,8 +1256,10 @@ const ExcalidrawWrapper = () => {
         [currentTeamId]: members,
       }));
       setTeamsPanelError("");
-    } catch {
-      setTeamsPanelError("Failed to load team members");
+    } catch (error) {
+      setTeamsPanelError(
+        getTeamsPanelErrorMessage(error, t("excPlus.teams.errors.loadMembers")),
+      );
     } finally {
       setIsTeamMembersLoading(false);
     }
@@ -1218,8 +1287,10 @@ const ExcalidrawWrapper = () => {
           role: input.role,
         });
         await loadTeamMembers();
-      } catch {
-        setTeamsPanelError("Failed to add team member");
+      } catch (error) {
+        setTeamsPanelError(
+          getTeamsPanelErrorMessage(error, t("excPlus.teams.errors.addMember")),
+        );
       }
     },
     [currentTeamId, loadTeamMembers, setTeamsPanelError],
@@ -1238,8 +1309,10 @@ const ExcalidrawWrapper = () => {
           role: input.role,
         });
         await loadTeamMembers();
-      } catch {
-        setTeamsPanelError("Failed to update member role");
+      } catch (error) {
+        setTeamsPanelError(
+          getTeamsPanelErrorMessage(error, t("excPlus.teams.errors.updateMemberRole")),
+        );
       }
     },
     [currentTeamId, loadTeamMembers, setTeamsPanelError],
@@ -1257,8 +1330,10 @@ const ExcalidrawWrapper = () => {
           userId,
         });
         await loadTeamMembers();
-      } catch {
-        setTeamsPanelError("Failed to remove team member");
+      } catch (error) {
+        setTeamsPanelError(
+          getTeamsPanelErrorMessage(error, t("excPlus.teams.errors.removeMember")),
+        );
       }
     },
     [currentTeamId, loadTeamMembers, setTeamsPanelError],
@@ -1327,12 +1402,38 @@ const ExcalidrawWrapper = () => {
   }, [loadScopedFiles]);
 
   useEffect(() => {
+    if (pendingOpsTimerRef.current) {
+      window.clearTimeout(pendingOpsTimerRef.current);
+      pendingOpsTimerRef.current = null;
+    }
+
     if (!isAuthenticated || !pendingOps.length) {
       return;
     }
 
-    replayPendingOperations();
-  }, [isAuthenticated, pendingOps.length, replayPendingOperations]);
+    const nextRetryAt = pendingOps.reduce<number | null>((current, op) => {
+      if (current === null) {
+        return op.nextRetryAt;
+      }
+      return Math.min(current, op.nextRetryAt);
+    }, null);
+
+    if (nextRetryAt === null) {
+      return;
+    }
+
+    const delay = Math.max(0, nextRetryAt - Date.now());
+    pendingOpsTimerRef.current = window.setTimeout(() => {
+      replayPendingOperations();
+    }, delay);
+
+    return () => {
+      if (pendingOpsTimerRef.current) {
+        window.clearTimeout(pendingOpsTimerRef.current);
+        pendingOpsTimerRef.current = null;
+      }
+    };
+  }, [isAuthenticated, pendingOps, replayPendingOperations]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -2163,7 +2264,7 @@ const ExcalidrawWrapper = () => {
               setFilesPanelError(
                 getFilesPanelErrorMessage(
                   error,
-                  "Failed to resolve conflict by overwrite",
+                  t("excPlus.files.errors.overwriteConflict"),
                 ),
               );
             }
@@ -2186,7 +2287,10 @@ const ExcalidrawWrapper = () => {
               setFileSyncState("synced");
             } catch (error) {
               setFilesPanelError(
-                getFilesPanelErrorMessage(error, "Failed to save conflict copy"),
+                getFilesPanelErrorMessage(
+                  error,
+                  t("excPlus.files.errors.saveConflictCopy"),
+                ),
               );
             }
           }}

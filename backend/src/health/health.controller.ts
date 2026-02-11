@@ -5,15 +5,20 @@ import {
   HttpException,
   HttpStatus,
 } from "@nestjs/common";
+import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 
 import { PrismaService } from "../prisma/prisma.service";
 
+@ApiTags("health")
 @Controller("health")
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Health check" })
+  @ApiResponse({ status: 200, description: "Service healthy" })
+  @ApiResponse({ status: 503, description: "Database unavailable" })
   async health() {
     try {
       await this.prisma.$queryRaw`SELECT 1`;

@@ -12,6 +12,12 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
+import {
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from "@nestjs/swagger";
 
 import { AuthUser, AuthUserContext } from "../common/decorators/auth-user.decorator";
 import { InvalidInputError } from "../common/exceptions/domain-errors";
@@ -23,12 +29,19 @@ import { ListFilesQuery } from "./dto/list-files.query";
 import { SaveFileDto } from "./dto/save-file.dto";
 import { FilesService } from "./files.service";
 
+@ApiTags("files")
 @Controller("files")
 @UseGuards(AuthCookieGuard)
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
   @Get()
+  @ApiOperation({ summary: "List files" })
+  @ApiQuery({ name: "scope", required: false, enum: ["personal", "team"] })
+  @ApiQuery({ name: "teamId", required: false, type: String })
+  @ApiQuery({ name: "includeTrashed", required: false, enum: ["true", "false"] })
+  @ApiQuery({ name: "favoritesOnly", required: false, enum: ["true", "false"] })
+  @ApiResponse({ status: 200, description: "Files listed" })
   async listFiles(
     @AuthUser() authUser: AuthUserContext,
     @Query() query: ListFilesQuery,
@@ -52,6 +65,8 @@ export class FilesController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: "Create file" })
+  @ApiResponse({ status: 201, description: "File created" })
   async createFile(
     @AuthUser() authUser: AuthUserContext,
     @Body() input: CreateFileDto,
@@ -75,12 +90,17 @@ export class FilesController {
   }
 
   @Get(":id")
+  @ApiOperation({ summary: "Get file by id" })
+  @ApiResponse({ status: 200, description: "File details" })
   async getFile(@AuthUser() authUser: AuthUserContext, @Param("id") fileId: string) {
     const file = await this.filesService.getFile({ userId: authUser.userId }, fileId);
     return { file };
   }
 
   @Put(":id")
+  @ApiOperation({ summary: "Save file" })
+  @ApiResponse({ status: 200, description: "File saved" })
+  @ApiResponse({ status: 409, description: "Version conflict" })
   async saveFile(
     @AuthUser() authUser: AuthUserContext,
     @Param("id") fileId: string,
@@ -105,12 +125,16 @@ export class FilesController {
 
   @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: "Move file to trash" })
+  @ApiResponse({ status: 204, description: "File trashed" })
   async trashFile(@AuthUser() authUser: AuthUserContext, @Param("id") fileId: string) {
     await this.filesService.trashFile({ userId: authUser.userId }, fileId);
   }
 
   @Post(":id/restore")
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Restore trashed file" })
+  @ApiResponse({ status: 200, description: "File restored" })
   async restoreFile(
     @AuthUser() authUser: AuthUserContext,
     @Param("id") fileId: string,
@@ -121,6 +145,8 @@ export class FilesController {
 
   @Delete(":id/permanent")
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: "Permanently delete file" })
+  @ApiResponse({ status: 204, description: "File deleted permanently" })
   async permanentlyDelete(
     @AuthUser() authUser: AuthUserContext,
     @Param("id") fileId: string,
@@ -129,6 +155,8 @@ export class FilesController {
   }
 
   @Patch(":id/favorite")
+  @ApiOperation({ summary: "Set file favorite flag" })
+  @ApiResponse({ status: 200, description: "File favorite status updated" })
   async setFavorite(
     @AuthUser() authUser: AuthUserContext,
     @Param("id") fileId: string,

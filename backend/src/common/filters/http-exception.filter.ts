@@ -90,6 +90,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
         return;
       }
 
+      if (status === HttpStatus.TOO_MANY_REQUESTS) {
+        response.status(HttpStatus.TOO_MANY_REQUESTS).json({
+          error: {
+            code: "RATE_LIMITED",
+            message: "Too many requests",
+          },
+        });
+        return;
+      }
+
       response.status(status).json({
         error: {
           code: "INTERNAL_ERROR",

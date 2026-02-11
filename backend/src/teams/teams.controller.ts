@@ -10,6 +10,11 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from "@nestjs/swagger";
 
 import { AuthUser, AuthUserContext } from "../common/decorators/auth-user.decorator";
 import { AuthCookieGuard } from "../common/guards/auth-cookie.guard";
@@ -19,18 +24,23 @@ import { CreateTeamDto } from "./dto/create-team.dto";
 import { UpdateMemberDto } from "./dto/update-member.dto";
 import { TeamsService } from "./teams.service";
 
+@ApiTags("teams")
 @Controller("teams")
 @UseGuards(AuthCookieGuard)
 export class TeamsController {
   constructor(private readonly teamsService: TeamsService) {}
 
   @Get()
+  @ApiOperation({ summary: "List teams for current user" })
+  @ApiResponse({ status: 200, description: "Teams listed" })
   async listTeams(@AuthUser() authUser: AuthUserContext) {
     const teams = await this.teamsService.listTeams({ userId: authUser.userId });
     return { teams };
   }
 
   @Post()
+  @ApiOperation({ summary: "Create team" })
+  @ApiResponse({ status: 201, description: "Team created" })
   async createTeam(
     @AuthUser() authUser: AuthUserContext,
     @Body() input: CreateTeamDto,
@@ -44,6 +54,8 @@ export class TeamsController {
   }
 
   @Get(":id/members")
+  @ApiOperation({ summary: "List team members" })
+  @ApiResponse({ status: 200, description: "Team members listed" })
   async listMembers(
     @AuthUser() authUser: AuthUserContext,
     @Param("id") teamId: string,
@@ -57,6 +69,8 @@ export class TeamsController {
   }
 
   @Post(":id/members")
+  @ApiOperation({ summary: "Add team member" })
+  @ApiResponse({ status: 200, description: "Member added" })
   async addMember(
     @AuthUser() authUser: AuthUserContext,
     @Param("id") teamId: string,
@@ -75,6 +89,8 @@ export class TeamsController {
   }
 
   @Patch(":id/members/:userId")
+  @ApiOperation({ summary: "Update team member role" })
+  @ApiResponse({ status: 200, description: "Member role updated" })
   async updateMemberRole(
     @AuthUser() authUser: AuthUserContext,
     @Param("id") teamId: string,
@@ -93,6 +109,8 @@ export class TeamsController {
 
   @Delete(":id/members/:userId")
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: "Remove team member" })
+  @ApiResponse({ status: 204, description: "Member removed" })
   async removeMember(
     @AuthUser() authUser: AuthUserContext,
     @Param("id") teamId: string,
@@ -101,4 +119,3 @@ export class TeamsController {
     await this.teamsService.removeMember({ userId: authUser.userId }, teamId, userId);
   }
 }
-
