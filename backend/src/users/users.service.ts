@@ -8,9 +8,24 @@ import type { User } from "@prisma/client";
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({
+  async findByEmail(email: string): Promise<User | null> {
+    const exactMatch = await this.prisma.user.findUnique({
       where: { email },
+    });
+    if (exactMatch) {
+      return exactMatch;
+    }
+
+    return this.prisma.user.findFirst({
+      where: {
+        email: {
+          equals: email,
+          mode: "insensitive",
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
     });
   }
 
